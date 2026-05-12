@@ -25,7 +25,7 @@ def deviceSend(arg=[]):  # 配置检查
         try:  # 处理数据检查
             logger.get_log().info('%s 回显:\n' % (device_ip))
             # timeNow = time.strftime('%Y%m%d%H%M%S', time.localtime(time.time()))
-            with open('data/%s_%s.log' % (device_ip, des_local), 'a', encoding='utf-8') as f:  # 命令回显集中存成.log文件
+            with open('data/%s_%s.log' % (device_ip, des_local), 'w', encoding='utf-8') as f:  # 命令回显集中存成.log文件
                 for resKey, value in resData.items():  # 回显日志
                     if resKey != 'loginWay':
                         f.write('%s\n' % (value))

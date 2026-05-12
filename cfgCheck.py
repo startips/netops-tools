@@ -172,13 +172,14 @@ def checkOptions(fileTxt, checkItems):  # 具体检查项
                 else:
                     checkResult.append('不涉及')
 
-            case 'pki配置':
+            case '设备Esn':
                 if value == 1:
                     # pki配置检查逻辑
-                    if genCheckOtion('#\s*\n\s*pki realm default\s*\n\s*#', fileTxt):
-                        checkResult.append('通过')
+                    esnInfo = re.search(r'ESN:\s*(\w+)', fileTxt, re.IGNORECASE)
+                    if esnInfo:
+                        checkResult.append(esnInfo.group(1))
                     else:
-                        checkResult.append('未通过')
+                        checkResult.append('未匹配到')
                 else:
                     checkResult.append('不涉及')
 
@@ -259,12 +260,11 @@ def checkOptions(fileTxt, checkItems):  # 具体检查项
             case '全局vlan配置':
                 if value == 1:
                     # 执行全局vlan配置检查逻辑
-                    if genCheckOtion(
-                            'vlan batch',
-                            fileTxt):
-                        checkResult.append('通过')
+                    matchVlanInfo = re.search(r'vlan batch\s+(.*)', fileTxt)
+                    if matchVlanInfo:
+                        checkResult.append(matchVlanInfo.group(1))
                     else:
-                        checkResult.append('未通过')
+                        checkResult.append('未匹配到')
                 else:
                     checkResult.append('不涉及')
 
