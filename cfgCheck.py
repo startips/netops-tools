@@ -116,7 +116,8 @@ def checkOptions(fileTxt, checkItems):  # 具体检查项
                 if value == 1:
                     # 执行未关闭端口检查逻辑
                     matchDownPortInfo = re.findall(
-                        r'(?:100|25)GE\d+\/\d+\/\d+\s+(down|down\(ed\)|down\(b\))(?:\s+\S+){3}\s+\d+\s+\d+', fileTxt,
+                        r'(?:Multi|100|25|10)GE\d+\/\d+\/\d+\s+(down|down\(ed\)|down\(b\))(?:\s+\S+){3}\s+\d+\s+\d+',
+                        fileTxt,
                         re.IGNORECASE)  # 匹配未关闭端口
                     if matchDownPortInfo:
                         checkResult.append(len(matchDownPortInfo))
