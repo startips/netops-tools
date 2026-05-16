@@ -31,6 +31,7 @@ mywork_script/
 │   ├── keyWords.txt        # 在线检查关键字
 │   └── devices_ip.xlsx     # 设备 IP 清单
 └── data/                   # 输出目录（Excel 报告、日志）
+    log/                    # 运行日志
 ```
 
 ## 配置检查（cfgCheck.py）
