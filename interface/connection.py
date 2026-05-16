@@ -264,8 +264,10 @@ class excel:  # Excel表格处理 只支持.xlsx格式
             for cell in row:
                 value = cell.value
                 # 规则
-                if value in ['未通过']:
-                    cell.font = red_font
+                for key in ['未通过']:
+                    if key in value:
+                        cell.font = red_font
+                        break
 
     def excel_creat(self, title, sheetname='data01', sheetIndex=1):  # 创建对象并设置好列头
         self.wb_obj = Workbook()

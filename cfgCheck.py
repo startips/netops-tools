@@ -11,8 +11,100 @@ cfgCheck.py - 华为交换机离线配置文件检查
     checkOptions(data, checkItems) - 调度器，按检查项分发到各 _check_xxx 函数
 """
 
-from interface import get_value
+from interface import get_value, excel
 import re
+
+
+# ============================================================
+# 版本补丁对照表（启动时从 Excel 加载）
+# 读取 read/版本补丁.xlsx → 版本补丁推荐（季度）sheet →
+# 筛选 使用场景=新上线 → 建立 {网元类型: (版本信息, H1推荐补丁)} 映射
+# ============================================================
+_VERSION_PATCH_MAP = {}  # {型号: (推荐版本, 推荐补丁)}
+
+
+def _load_version_patch_map():
+    """
+    加载版本补丁对照表。
+    从本地 Excel 文件读取推荐版本和补丁信息，用于后续与设备采集结果对比。
+    读取失败时直接报错退出。
+    """
+    global _VERSION_PATCH_MAP
+    map_result = {}
+    try:
+        xl = excel('read/版本补丁.xlsx')
+        xl.excelReadCread()  # 初始化 workbook 对象
+        data = xl.excelReadSheet(sheetnum='版本补丁推荐（季度）')
+    except Exception as e:
+        raise RuntimeError(f'读取版本补丁.xlsx 失败: {e}')
+
+    if not data:
+        return  # 空文件，不报错但对照表为空
+
+    headers = data[0]
+    # 找到列索引
+    scene_idx = next((i for i, h in enumerate(headers) if '使用场景' in str(h)), None)
+    if scene_idx is None:
+        raise RuntimeError('版本补丁.xlsx 中未找到"使用场景"列')
+
+    for row in data[1:]:
+        try:
+            if row[scene_idx] == '新上线':
+                map_result[row[0]] = (row[1], row[2])
+        except IndexError:
+            continue  # 跳过空行
+
+    _VERSION_PATCH_MAP = map_result
+
+def _get_device_model(fileTxt):
+    """
+    从配置文件中提取设备型号。
+
+    通过匹配 "HUAWEI 型号 uptime is" 获取设备型号字符串。
+
+    参数：
+        fileTxt: 配置文件完整文本
+
+    返回：
+        str or None — 设备型号，未匹配到时返回 None
+    """
+    m = re.search(r'HUAWEI (\S+) (?:Routing Switch)?\s*uptime is', fileTxt, re.IGNORECASE)
+    return m.group(1) if m else None
+
+
+def _match_model(model):
+    """
+    将设备型号匹配到版本补丁对照表中的网元类型。
+
+    匹配规则：
+    1. 精确匹配（优先）
+    2. S5731 系列前缀匹配（如 S5731-H48T4XC → S5731-H）
+    3. 其他情况返回 None
+
+    参数：
+        model: 配置文件提取的设备型号，如 'CE6885-48YS8CQ'
+
+    返回：
+        str or None — 对照表中的网元类型键值
+    """
+    if not model:
+        return None
+
+    # 1. 精确匹配
+    if model in _VERSION_PATCH_MAP:
+        return model
+
+    # 2. S5731 前缀匹配（S5731-H48T4XC / S5731-S48T4X → S5731-H / S5731-S）
+    if model.startswith('S5731-'):
+        for key in _VERSION_PATCH_MAP:
+            if key.startswith('S5731-') and model.startswith(key):
+                return key
+
+    return None
+
+
+# 模块加载时自动加载对照表
+_load_version_patch_map()
 
 
 def deviceCheck(arg):  # 检查
@@ -107,15 +199,55 @@ def checkOptions(fileTxt, checkItems):
 # ============================================================
 
 def _check_version(fileTxt, checkItems):
-    """检查交换机版本号"""
-    matchVerinfo = re.findall(r'Version \S+ \((\S+)\)', fileTxt)
-    return matchVerinfo[0] if matchVerinfo else '未匹配到'
+    """
+    检查交换机版本号，并与本地版本补丁对照表对比。
+
+    从配置文件中提取版本号，然后根据设备型号在对照表中查找推荐版本：
+    - 匹配 → 返回版本号
+    - 不匹配 → 返回 '版本号@未通过'
+    - 找不到对应型号 → 返回 '版本号-未知'
+    - 采集不到版本号 → 返回 '未匹配到'
+    """
+    matchVerinfo = re.findall(r'Version \S+ \(\S+ (\S+)\)', fileTxt)
+    collected = matchVerinfo[0] if matchVerinfo else '未匹配到'
+
+    if collected == '未匹配到':
+        return collected
+
+    model = _get_device_model(fileTxt)
+    matched_key = _match_model(model)
+
+    if matched_key is None:
+        return f'{collected}-未知'
+
+    recommended = _VERSION_PATCH_MAP[matched_key][0]  # 推荐版本
+    return collected if collected == recommended else f'{collected}-未通过'
 
 
 def _check_patch(fileTxt, checkItems):
-    """检查补丁版本号"""
+    """
+    检查补丁版本号，并与本地版本补丁对照表对比。
+
+    从配置文件中提取补丁号，然后根据设备型号在对照表中查找推荐补丁：
+    - 匹配 → 返回补丁号
+    - 不匹配 → 返回 '补丁号@未通过'
+    - 找不到对应型号 → 返回 '补丁号-未知'
+    - 采集不到补丁号 → 返回 '未匹配到'
+    """
     matchPatInfo = re.findall(r'Patch Package Version\s?\:(\S+)', fileTxt)
-    return matchPatInfo[0] if matchPatInfo else '未匹配到'
+    collected = matchPatInfo[0] if matchPatInfo else '未匹配到'
+
+    if collected == '未匹配到':
+        return collected
+
+    model = _get_device_model(fileTxt)
+    matched_key = _match_model(model)
+
+    if matched_key is None:
+        return f'{collected}-未知'
+
+    recommended = _VERSION_PATCH_MAP[matched_key][1]  # 推荐补丁
+    return collected if collected == recommended else f'{collected}-未通过'
 
 
 def _check_extra_files(fileTxt, checkItems):
@@ -786,6 +918,53 @@ def _check_monitor_link(fileTxt, checkItems):
         return '通过' if matchMonitorLinkInfo else '未通过'
 
 
+def _check_alarm_active(fileTxt, checkItems):
+    """
+    检查 display alarm active 活跃告警。
+
+    在配置文件中搜索 display alarm active 命令的回显区域，
+    统计该区域中是否存在活跃告警条目。
+
+    参数：
+        fileTxt:     配置文件完整文本
+        checkItems:  设备信息（含 type/name）
+
+    返回：
+        '未匹配到' — 配置文件中没有 display alarm active 回显
+        '通过'      — 有回显区域，但没有告警数据行
+        'N'         — 有 N 条活跃告警（N 为数字字符串）
+    """
+    # 定位 display alarm active 命令的回显区域
+    # 回显格式：
+    #   display alarm active
+    #   Sequence   AlarmId    Severity Date Time  Description
+    #   1          0x66f00001 Major    2026-05-16 14:30:25  Entity alarms
+    # 或：
+    #   display alarm active | no
+    #   Sequence   AlarmId    Severity Date Time  Description
+    #   （无告警数据行，只有表头）
+    alarmSection = re.search(
+        r'display alarm active[\s\S]*?<',  # 从 display alarm active 开始到下一个 <（命令提示符标记）
+        fileTxt, re.IGNORECASE
+    )
+    # 如果找不到 display alarm active 段，返回未匹配到
+    if not alarmSection:
+        return '未匹配到'
+
+    alarmText = alarmSection.group()
+    # 在回显区域中统计告警条目数量
+    # 告警行特征：序号 + 16进制AlarmId + 严重级别 + 日期
+    alarmCount = len(re.findall(
+        r'\d+\s+0x[0-9a-fA-F]+\s+\S+\s+\d{4}-\d{2}-\d{2}',
+        alarmText
+    ))
+
+    if alarmCount == 0:
+        return '通过'
+    else:
+        return str(alarmCount)
+
+
 # ============================================================
 # 检查项分发表：检查项名称 -> 对应函数
 # ============================================================
@@ -823,6 +1002,7 @@ _CHECKERS = {
     'peerlink配置':        _check_peerlink,
     'DAD配置':             _check_dad,
     'monitor-link配置':    _check_monitor_link,
+    '告警检查':            _check_alarm_active,
 }
 
 

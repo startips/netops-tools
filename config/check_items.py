@@ -10,10 +10,12 @@
     from config.check_items import DEVICE_TYPE_CONFIGS, DEVICE_TYPE_PATTERNS
     config = DEVICE_TYPE_CONFIGS['Spine']  # 获取 Spine 类型的检查项配置
     config['版本']  # => 1
+
 新增/修改配置的方式：
     - 增检查项：CHECK_ITEM_NAMES 加名字 + 要检查的设备类型里加一行
     - 增设备类型：一个 _make_check_option() 调用 + 注册到两个导出表
 """
+
 # ============================================================
 # 所有检查项名称（固定顺序，与各设备类型的 0/1 值一一对应）
 # 顺序与原有 returntype() 中列出的顺序一致
@@ -52,6 +54,7 @@ CHECK_ITEM_NAMES = (
     'peerlink配置',            # peer-link (Eth-Trunk100)
     'DAD配置',                 # DAD检测链路 (Eth-Trunk101)
     'monitor-link配置',        # monitor-link联动组
+    '告警检查',                # display alarm active 活跃告警统计
 )
 
 
@@ -60,7 +63,7 @@ def _make_check_option(*enabled_items):
     生成完整的 checkOption 字典。
 
     工厂函数：传入所有 value=1 的检查项名称（可变参数），
-    自动生成包含全部 33 项的完整字典，未传入的项默认为 0（不检查）。
+    自动生成包含全部 34 项的完整字典，未传入的项默认为 0（不检查）。
 
     参数：
         enabled_items: 需要开启检查的项名称（与 CHECK_ITEM_NAMES 中的名字一致）
@@ -108,6 +111,7 @@ SPINE_CONFIG = _make_check_option(
     'hash配置',
     '带外接口配置',
     'loopback配置',
+    '告警检查',
 )
 
 # --- Leaf (叶交换机) ---
@@ -144,6 +148,7 @@ LEAF_CONFIG = _make_check_option(
     'peerlink配置',
     'DAD配置',
     'monitor-link配置',
+    '告警检查',
 )
 
 # --- Slf (Super Leaf) ---
@@ -180,6 +185,7 @@ SLF_CONFIG = _make_check_option(
     'peerlink配置',
     'DAD配置',
     'monitor-link配置',
+    '告警检查',
 )
 
 # --- La (Leaf A系列?) ---
@@ -213,6 +219,7 @@ LA_CONFIG = _make_check_option(
     'user-interface配置',
     '带外接口配置',
     'monitor-link配置',
+    '告警检查',
 )
 
 # --- Pl (Police?) ---
@@ -241,6 +248,7 @@ PL_CONFIG = _make_check_option(
     'user-interface配置',
     'hash配置',
     '带外接口配置',
+    '告警检查',
 )
 
 # --- Podlc ---
@@ -268,6 +276,7 @@ PODLC_CONFIG = _make_check_option(
     'user-interface配置',
     'hash配置',
     '带外接口配置',
+    '告警检查',
 )
 
 # --- Gwlc (Gateway Leaf?) ---
@@ -295,6 +304,7 @@ GWLC_CONFIG = _make_check_option(
     'user-interface配置',
     'hash配置',
     '带外接口配置',
+    '告警检查',
 )
 
 # --- Agg (汇聚交换机) ---
@@ -323,6 +333,7 @@ AGG_CONFIG = _make_check_option(
     'user-interface配置',
     'hash配置',
     '带外接口配置',
+    '告警检查',
 )
 
 # --- Nfvl (NFV Leaf?) ---
@@ -353,6 +364,7 @@ NFVL_CONFIG = _make_check_option(
     'user-interface配置',
     'hash配置',
     '带外接口配置',
+    '告警检查',
 )
 
 # --- Nfvw (NFV WAN?) ---
@@ -383,6 +395,7 @@ NFVW_CONFIG = _make_check_option(
     'user-interface配置',
     'hash配置',
     '带外接口配置',
+    '告警检查',
 )
 
 # --- Wc (WAC) ---
@@ -411,6 +424,7 @@ WC_CONFIG = _make_check_option(
     'user-interface配置',
     'hash配置',
     '带外接口配置',
+    '告警检查',
 )
 
 # --- Fw (防火墙) ---
@@ -435,6 +449,7 @@ FW_CONFIG = _make_check_option(
     'cmd权限配置',
     'user-interface配置',
     '带外接口配置',
+    '告警检查',
 )
 
 # --- S0 (Super Spine?) ---
@@ -462,6 +477,7 @@ S0_CONFIG = _make_check_option(
     'user-interface配置',
     '带外接口配置',
     'loopback配置',
+    '告警检查',
 )
 
 # --- Other (未匹配到的其他类型) ---
@@ -494,6 +510,7 @@ OTHER_CONFIG = _make_check_option(
     'user-interface配置',
     '带外接口配置',
     'loopback配置',
+    '告警检查',
 )
 
 # ============================================================
