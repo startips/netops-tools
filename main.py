@@ -82,7 +82,6 @@ def returntype(name):  # 确定设备类型以及检查项
     根据设备名称匹配设备类型，返回对应的检查项配置。
 
     从 config.check_items 模块读取设备类型匹配规则和配置表，
-    用数据驱动方式替代原有的 if-elif 长链（原 490 行 -> 现 12 行）。
 
     参数：
         name: 设备文件名（不含后缀），如 'SZPX06R1H01U19-DCN-DC1_FB22-S_A'
@@ -175,44 +174,9 @@ def start_action():  # windows功能入口
             writeToExcel(savename, title, data)
             break
         if functionSelect == '2':  # 配置比对
-            title = ['设备名',
-                     '设备类型',
-                     'sysname',
-                     '管理IP',
-                     '型号',
-                     '版本',
-                     '补丁',
-                     '多余文件检查',
-                     '硬件状态检查',
-                     '未关闭端口',
-                     'bgp邻居状态',
-                     'feature-software状态',
-                     '执行失败命令检查',
-                     '设备ESN',
-                     '关闭FTP配置',
-                     'mlag状态',
-                     'mlag配置',
-                     '大路由配置',
-                     'NTP配置',
-                     '全局vlan配置',
-                     'mac飘移配置',
-                     'STP配置',
-                     'arp冲突配置',
-                     'telnet关闭配置',
-                     'vpn实例配置',
-                     'aaa配置',
-                     'BGP配置',
-                     'snmp配置',
-                     'LLDP配置',
-                     'ssh配置',
-                     'cmd权限配置',
-                     'user-interface配置',
-                     'hash配置',
-                     '带外接口配置',
-                     'loopback配置',
-                     'peerlink配置',
-                     'DAD配置',
-                     'monitor-link配置']  # 保存的sheet标题
+            from config.check_items import CHECK_ITEM_NAMES
+            title = (['设备名', '设备类型', 'sysname', '管理IP', '型号']
+                     + list(CHECK_ITEM_NAMES))  # 从配置表动态生成列头
             savename = 'compareResult'
             from cfgCheck import deviceCheck
             data = funcAction1(oringinDataFormat(), savename, deviceCheck, 10)

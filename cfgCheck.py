@@ -1,10 +1,33 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
+"""
+cfgCheck.py - 华为交换机离线配置文件检查
+
+根据设备类型（Spine/Leaf/Slf 等）对 .log 配置文件进行逐项合规检查。
+结果写入 Excel 报告。
+
+主要函数：
+    deviceCheck(arg)       - 入口，读取文件并调用 checkOptions
+    checkOptions(data, checkItems) - 调度器，按检查项分发到各 _check_xxx 函数
+"""
+
 from interface import get_value
 import re
 
 
 def deviceCheck(arg):  # 检查
+    """
+    设备检查入口函数。
+
+    读取 read/config/ 目录下的配置文件，调用 checkOptions 执行各项检查。
+
+    参数：
+        arg: dict，包含 name（设备名）、type（设备类型）、filename（配置文件名）
+             以及 checkOption（33个检查项的 0/1 配置）
+
+    返回：
+        list，[设备名, 设备类型, sysname, 管理IP, 型号, 各项检查结果...]
+    """
     logger = get_value('logger')
     data_local = arg
     result = [data_local['name'], data_local['type']]
@@ -20,780 +43,794 @@ def deviceCheck(arg):  # 检查
     return result
 
 
-def checkOptions(fileTxt, checkItems):  # 具体检查项
+# ============================================================
+# 检查项调度器
+# ============================================================
+def checkOptions(fileTxt, checkItems):
+    """
+    配置检查调度器。
+
+    固定提取 3 项基本元信息（sysname/管理IP/型号），
+    然后根据 checkItems['checkOption'] 中的 0/1 配置，
+    将每项检查分发到对应的 _check_xxx 函数。
+
+    参数：
+        fileTxt:     配置文件的完整文本内容
+        checkItems:  dict，包含 name（设备名）、type（设备类型）、
+                     checkOption（{检查项名: 0/1}）
+
+    返回：
+        list，[sysname, 管理IP, 型号, 各项检查结果...]
+    """
     logger = get_value('logger')
-    checkResult = []  # 检查结果
+    checkResult = []
 
-    devSysnameMatch = re.search(r'#\s*\n\s*sysname (\S+)\s*\n\s*#', fileTxt, re.IGNORECASE)  # 设备sysname
-    if devSysnameMatch:
-        checkResult.append(devSysnameMatch.group(1))
-    else:
-        checkResult.append('未匹配到')
+    # ---- 固定提取项：sysname / 管理IP / 设备型号 ----
+    devSysnameMatch = re.search(r'#\s*\n\s*sysname (\S+)\s*\n\s*#', fileTxt, re.IGNORECASE)
+    checkResult.append(devSysnameMatch.group(1) if devSysnameMatch else '未匹配到')
 
-    devTypeMatch = re.search(r'interface MEth\S+\s*\n\s*'
-                             'description \S+\s*\n\s*'
-                             'ip binding vpn-instance \S+\s*\n\s*'
-                             'ip address (\d+\.\d+\.\d+\.\d+) \d+\.\d+\.\d+\.\d+', fileTxt, re.IGNORECASE)  # 设备ip
-    if devTypeMatch:
-        checkResult.append(devTypeMatch.group(1))
-    else:
-        checkResult.append('未匹配到')
+    devTypeMatch = re.search(
+        r'interface MEth\S+\s*\n\s*'
+        r'description \S+\s*\n\s*'
+        r'ip binding vpn-instance \S+\s*\n\s*'
+        r'ip address (\d+\.\d+\.\d+\.\d+) \d+\.\d+\.\d+\.\d+',
+        fileTxt, re.IGNORECASE
+    )
+    checkResult.append(devTypeMatch.group(1) if devTypeMatch else '未匹配到')
 
-    devIpMatch = re.search(r'HUAWEI (\S+) (?:Routing Switch)?\s*uptime is', fileTxt, re.IGNORECASE)  # 设备型号
-    if devIpMatch:
-        checkResult.append(devIpMatch.group(1))
-    else:
-        checkResult.append('未匹配到')
+    devIpMatch = re.search(r'HUAWEI (\S+) (?:Routing Switch)?\s*uptime is', fileTxt, re.IGNORECASE)
+    checkResult.append(devIpMatch.group(1) if devIpMatch else '未匹配到')
 
-    for checkItem, value in checkItems['checkOption'].items():  # 遍历检查项
-        logger.get_log().info(f'{checkItems["name"]}的检查项\"{checkItem}\"设置为\"{value}\",开始检查')
-        match checkItem:  # 按条件筛选匹配
-            case '版本':
-                if value == 1:
-                    # 执行版本检查逻辑
-                    matchVerinfo = re.findall(r'Version \S+ \(\S+ (\S+)\)', fileTxt)
-                    if matchVerinfo:
-                        verinfo = matchVerinfo[0]
-                    else:
-                        verinfo = '未匹配到'
-                    checkResult.append(verinfo)
-                else:
-                    checkResult.append('不涉及')
-
-            case '补丁':
-                if value == 1:
-                    # 执行补丁检查逻辑
-                    matchPatInfo = re.findall(r'Patch Package Version\s?\:(\S+)', fileTxt)
-                    if matchPatInfo:
-                        patInfo = matchPatInfo[0]
-                    else:
-                        patInfo = '未匹配到'
-                    checkResult.append(patInfo)
-                else:
-                    checkResult.append('不涉及')
-
-            case '多余文件检查':
-                if value == 1:
-                    # 多余文件检查逻辑
-                    matchDirInfo = re.search(r'Directory of flash[\s\S]*?<', fileTxt, re.IGNORECASE)  # 匹配dir字段
-                    if matchDirInfo:
-                        dirInfo = matchDirInfo.group()
-                        verCount = len(re.findall(r'\d+\s+\S+\s+\S+\s+\S+\s\d+\s\d+\s\d+\:\d+\:\d+\s+\S+\.cc', dirInfo,
-                                                  re.IGNORECASE))  # 统计文件数量
-                        patCount = len(re.findall(r'\d+\s+\S+\s+\S+\s+\S+\s\d+\s\d+\s\d+\:\d+\:\d+\s+\S+\.pat', dirInfo,
-                                                  re.IGNORECASE))
-                        cfgCount = len(re.findall(r'\d+\s+\S+\s+\S+\s+\S+\s\d+\s\d+\s\d+\:\d+\:\d+\s+\S+\.cfg', dirInfo,
-                                                  re.IGNORECASE))
-                        if verCount == 1 and patCount == 1 and cfgCount <= 1:
-                            allCount = '通过'
-                        elif verCount == 0 and patCount == 0 and cfgCount == 0:
-                            allCount = '未匹配到'
-                        else:
-                            allCount = 'cc:%d,pat:%d,cfg:%d' % (verCount, patCount, cfgCount)
-                    else:
-                        allCount = '未匹配到'
-                    checkResult.append(allCount)
-                else:
-                    checkResult.append('不涉及')
-
-            case '硬件状态检查':
-                if value == 1:
-                    # 执行硬件状态检查逻辑
-                    deviceInfo = re.search(r'Device status:[\s\S]*?<', fileTxt, re.IGNORECASE)  # 硬件状态信息
-                    if deviceInfo:
-                        statusStr = ['Offline', 'Unregistered', 'Abnormal']
-                        checkDeviceRes = '通过'
-                        for str in statusStr:
-                            if str in deviceInfo.group():
-                                checkDeviceRes = '未通过'
-                    else:
-                        checkDeviceRes = '未匹配到'
-                    checkResult.append(checkDeviceRes)
-                else:
-                    checkResult.append('不涉及')
-
-            case '未关闭端口':
-                if value == 1:
-                    # 执行未关闭端口检查逻辑
-                    matchDownPortInfo = re.findall(
-                        r'(?:Multi|100|25|10)GE\d+\/\d+\/\d+\s+(down|down\(ed\)|down\(b\))(?:\s+\S+){3}\s+\d+\s+\d+',
-                        fileTxt,
-                        re.IGNORECASE)  # 匹配未关闭端口
-                    if matchDownPortInfo:
-                        checkResult.append(len(matchDownPortInfo))
-                    else:
-                        checkResult.append('通过')
-                else:
-                    checkResult.append('不涉及')
-
-            case 'bgp邻居状态':
-                if value == 1:
-                    # 执行bgp邻居状态检查逻辑
-                    bgpInfo = re.search(r'BGP local router ID[\s\S]*?<', fileTxt, re.IGNORECASE)  # bgp状态信息
-                    if bgpInfo:
-                        bgpNum = re.findall(r'Total number of peers\s+\:\s+(\d+)', bgpInfo.group(), re.IGNORECASE)[0]
-                        normalBgpNum = len(
-                            re.findall(r'\d+\.\d+\.\d+\.\d+(:?\s+\d+){5}\s+\S+\s+Established',
-                                       bgpInfo.group(),
-                                       re.IGNORECASE))
-                        checkResult.append('邻居数量:%s,正常邻居数量:%d' % (bgpNum, normalBgpNum))
-                    else:
-                        checkResult.append('未匹配到')
-                else:
-                    checkResult.append('不涉及')
-
-            case 'feature-software状态':
-                if value == 1:
-                    # 执行feature-software状态检查逻辑
-                    matchFeaInfo = re.search(r'FeatureName[\s\S]*?<', fileTxt)
-                    if matchFeaInfo:
-                        featureInfo = re.findall(
-                            r'(:?PKG_PNF|AIFABRIC|TELEMETRY|WEAKEA)\s+\S+\.cc\s+active\s+\S+\s+\d{4}-\d{2}-\d{2}\s+\d{2}\:\d{2}\:\d{2}',
-                            matchFeaInfo.group(), re.IGNORECASE)
-                        if len(featureInfo) >= 4:
-                            checkResult.append('通过')
-                        else:
-                            checkResult.append('未通过')
-                    else:
-                        checkResult.append('未匹配到')
-                else:
-                    checkResult.append('不涉及')
-
-            case '失败命令配置检查':
-                if value == 1:
-                    # 执行失败命令配置检查逻辑
-                    matchRecover = re.findall('The number of failed commands is (\d+)', fileTxt, re.IGNORECASE)
-                    if matchRecover:
-                        if matchRecover[0] == '0':
-                            checkResult.append('通过')
-                        else:
-                            checkResult.append(matchRecover[0])
-                    else:
-                        checkResult.append('未匹配到')
-                else:
-                    checkResult.append('不涉及')
-
-            case '设备Esn':
-                if value == 1:
-                    # pki配置检查逻辑
-                    esnInfo = re.search(r'ESN:\s*(\w+)', fileTxt, re.IGNORECASE)
-                    if esnInfo:
-                        checkResult.append(esnInfo.group(1))
-                    else:
-                        checkResult.append('未匹配到')
-                else:
-                    checkResult.append('不涉及')
-
-            case '关闭FTP配置':
-                if value == 1:
-                    # 关闭FTP配置检查逻辑
-                    if genCheckOtion(
-                            'undo ftp server source all-interface\s*\n\s*'
-                            'undo ftp ipv6 server source all-interface',
-                            fileTxt):
-                        checkResult.append('通过')
-                    else:
-                        checkResult.append('未通过')
-                else:
-                    checkResult.append('不涉及')
-
-            case 'mlag状态':
-                if value == 1:
-                    # 执行mlag状态检查逻辑
-                    if genCheckOtion(
-                            'Heart beat state\s+\:\s+OK\s*\n\s*'
-                            'Node [12][\s\S]*?State\s+\:\s+(:?Backup|Master)[\s\S]*?'
-                            'Node [12][\s\S]*?State\s+\:\s+(:?Backup|Master)',
-                            fileTxt):
-                        checkResult.append('通过')
-                    else:
-                        checkResult.append('未通过')
-                else:
-                    checkResult.append('不涉及')
-
-            case 'mlag配置':
-                if value == 1:
-                    # 执行mlag配置检查逻辑
-                    if genCheckOtion(
-                            '#\s*\n\s*'
-                            'dfs-group 1\s*\n\s*'
-                            'authentication-mode hmac-sha256 password \S+\s*\n\s*'
-                            'dual-active detection source ip \S+ vpn-instance DAD peer \S+\s*\n\s*'
-                            'm-lag up-delay 90\s*\n\s*'
-                            'priority 1[25]0\s*\n\s*'
-                            '#',
-                            fileTxt):
-                        checkResult.append('通过')
-                    else:
-                        checkResult.append('未通过')
-                else:
-                    checkResult.append('不涉及')
-
-            case '大路由配置':
-                if value == 1:
-                    if genCheckOtion(
-                            '#\s*\n\s*system resource large-route\s*\n\s*#',
-                            fileTxt):
-                        checkResult.append('通过')
-                    else:
-                        # 排除 CE6866 和 k8s vlanif
-                        if (genCheckOtion('HUAWEI CE6866\S+ uptime is', fileTxt) or
-                                genCheckOtion('interface Vlanif\d+\s*\n\s*description\s+.*?k8s', fileTxt)):
-                            checkResult.append('不涉及')
-                        else:
-                            checkResult.append('未通过')
-                else:
-                    checkResult.append('不涉及')
-
-            case 'NTP配置':
-                if value == 1:
-                    # 执行NTP配置检查逻辑
-                    if genCheckOtion(
-                            'ntp server source-interface all disable\s*\n\s*'
-                            'ntp ipv6 server source-interface all disable',
-                            fileTxt):
-                        checkResult.append('通过')
-                    else:
-                        checkResult.append('未通过')
-                else:
-                    checkResult.append('不涉及')
-
-            case '全局vlan配置':
-                if value == 1:
-                    # 执行全局vlan配置检查逻辑
-                    matchVlanInfo = re.search(r'vlan batch\s+(.*)', fileTxt)
-                    if matchVlanInfo:
-                        checkResult.append(matchVlanInfo.group(1))
-                    else:
-                        checkResult.append('未匹配到')
-                else:
-                    checkResult.append('不涉及')
-
-            case 'mac飘移配置':
-                if value == 1:
-                    # 执行mac飘移配置检查逻辑
-                    if genCheckOtion(
-                            'mac-address flapping detection security-level low\s*\n\s*'
-                            'mac-address flapping periodical trap enable',
-                            fileTxt):
-                        checkResult.append('通过')
-                    else:
-                        checkResult.append('未通过')
-                else:
-                    checkResult.append('不涉及')
-
-            case 'STP配置':
-                if value == 1:
-                    # 执行STP配置检查逻辑
-                    if genCheckOtion(
-                            'stp bridge-address \d{4}-\d{4}-\d{4}\s*\n\s*'
-                            'stp mode rstp\s*\n\s*'
-                            'stp v-stp enable\s*\n\s*'
-                            'stp instance 0 root primary\s*\n\s*'
-                            'stp bpdu-protection\s*\n\s*'
-                            'stp tc-protection',
-                            fileTxt):
-                        checkResult.append('通过')
-                    else:
-                        checkResult.append('未通过')
-                else:
-                    checkResult.append('不涉及')
-
-            case 'arp冲突配置':
-                if value == 1:
-                    # 执行arp冲突配置检查逻辑
-                    if genCheckOtion(
-                            '#\s*\n\s*arp ip-conflict-detect enable\s*\n\s*#',
-                            fileTxt):
-                        checkResult.append('通过')
-                    else:
-                        checkResult.append('未通过')
-                else:
-                    checkResult.append('不涉及')
-
-            case 'telnet关闭配置':
-                if value == 1:
-                    # 执行telnet关闭配置检查逻辑
-                    if genCheckOtion(
-                            'telnet server disable\s*\n\s*'
-                            'telnet ipv6 server disable\s*\n\s*'
-                            'undo telnet server-source all-interface\s*\n\s*'
-                            'undo telnet ipv6 server-source all-interface',
-                            fileTxt):
-                        checkResult.append('通过')
-                    else:
-                        checkResult.append('未通过')
-                else:
-                    checkResult.append('不涉及')
-
-            case 'vpn实例配置':
-                if value == 1:
-                    # 执行vpn实例配置检查逻辑
-                    matchOob = re.search(
-                        r'#\s*\n\s*'
-                        r'ip vpn-instance OOB\s*\n\s*'
-                        r'ipv4-family\s*\n\s*'
-                        r'(route-distinguisher 200:1\s*\n\s*)?'
-                        r'#',
-                        fileTxt,
-                        re.IGNORECASE)
-                    matchDad = re.search(r'#\s*\n\s*'
-                                         r'ip vpn-instance DAD\s*\n\s*'
-                                         r'ipv4-family\s*\n\s*'
-                                         r'#', fileTxt,
-                                         re.IGNORECASE)
-                    if checkItems['type'] in ['Leaf']:  # leaf必须包含2个实例
-                        if matchOob and matchDad:
-                            checkResult.append('通过')
-                        else:
-                            checkResult.append('未通过')
-                    else:  # 其他只需要oob实例
-                        if matchOob:
-                            checkResult.append('通过')
-                        else:
-                            checkResult.append('未通过')
-                else:
-                    checkResult.append('不涉及')
-
-            case 'aaa配置':
-                if value == 1:
-                    # 执行aaa配置检查逻辑
-                    if genCheckOtion(
-                            'aaa\s*\n\s*'
-                            'authentication-scheme default\s*\n\s*'
-                            'authentication-mode local\s*\n\s*'
-                            'authorization-scheme default\s*\n\s*'
-                            'authorization-mode local\s*\n\s*'
-                            'accounting-scheme default\s*\n\s*'
-                            'accounting-mode none\s*\n\s*'
-                            'local-aaa-user password policy administrator\s*\n\s*'
-                            'password history record number 0\s*\n\s*'
-                            'password alert before-expire 0\s*\n\s*'
-                            'undo password alert original\s*\n\s*'
-                            'password expire 0\s*\n\s*'
-                            'domain default\s*\n\s*'
-                            'authentication-scheme default\s*\n\s*'
-                            'accounting-scheme default\s*\n\s*'
-                            'domain default_admin\s*\n\s*'
-                            'authentication-scheme default\s*\n\s*'
-                            'accounting-scheme default\s*\n\s*'
-                            'local-aaa-user user-name complexity-check disable\s*\n\s*'
-                            '(?:local-user (?:admin|nmsuser) password irreversible-cipher \S+\s*\n\s*'
-                            'local-user (?:admin|nmsuser) password-force-change disable\s*\n\s*'
-                            'local-user (?:admin|nmsuser) privilege level [13]\s*\n\s*'
-                            'local-user (?:admin|nmsuser) service-type terminal ssh\s*\n\s*){2}',
-                            fileTxt):
-                        checkResult.append('通过')
-                    else:
-                        checkResult.append('未通过')
-                else:
-                    checkResult.append('不涉及')
-
-            case 'BGP配置':
-                if value == 1:
-                    # 执行BGP配置检查逻辑
-                    # ipv4邻居配置检查格式
-                    SpineIpv4Bgp = ('group Leaf-IPv4 external\s*\n\s*peer Leaf-IPv4 as-number \d+'
-                                    '(:?\s*\n\s*peer \d+\.\d+\.\d+\.\d+ as-number \d+\s*\n\s*peer \d+\.\d+\.\d+\.\d+ group Leaf-IPv4\s*\n\s*peer \d+\.\d+\.\d+\.\d+ description \S+)+'
-                                    '\s*\n\s*group SuperSpine-IPv4 external\s*\n\s*peer SuperSpine-IPv4 as-number \d+'
-                                    '(:?\s*\n\s*peer \d+\.\d+\.\d+\.\d+ as-number \d+\s*\n\s*peer \d+\.\d+\.\d+\.\d+ group SuperSpine-IPv4\s*\n\s*peer \d+\.\d+\.\d+\.\d+ description \S+)+'
-                                    '\s*\n\s*#\s*\n\s*ipv4-family unicast'
-                                    '(:?\s*\n\s*network \d+\.\d+\.\d+\.\d+ \d+\.\d+\.\d+\.\d+)+'
-                                    '\s*\n\s*maximum load-balancing 32\s*\n\s* peer Leaf-IPv4 enable\s*\n\s*peer Leaf-IPv4 route-policy To-Server-Leaf export\s*\n\s*peer Leaf-IPv4 advertise-community\s*\n\s*  peer Leaf-IPv4 route-update-interval 0'
-                                    '(:?\s*\n\s*peer \d+\.\d+\.\d+\.\d+ enable\s*\n\s*peer \d+\.\d+\.\d+\.\d+ group Leaf-IPv4)+\s*\n\s*peer SuperSpine-IPv4 enable\s*\n\s*peer SuperSpine-IPv4 advertise-community\s*\n\s*peer SuperSpine-IPv4 route-update-interval 0'
-                                    '(:?\s*\n\s*peer \d+\.\d+\.\d+\.\d+ enable\s*\n\s*peer \d+\.\d+\.\d+\.\d+ group SuperSpine-IPv4)+'
-                                    '[\s\S]*?route-policy To-Server-Leaf permit node 10\s*\n\s*apply as-path \d+ overwrite')
-                    # vpnv4邻居配置检查格式
-                    spineVpnv4Bgp = ('#\s*\n\s*ipv4-family unicast\s*\n\s*#\s*\n\s*'
-                                     'ipv4-family vpn-instance CMB-PRD-CRI'
-                                     '(:?\s*\n\s*network \d+\.\d+\.\d+\.\d+ \d+\.\d+\.\d+\.\d+)+'
-                                     '\s*\n\s*maximum load-balancing 32\s*\n\s*group Leaf-IPv4 external\s*\n\s*peer Leaf-IPv4 as-number \d+'
-                                     '(:?\s*\n\s*peer \d+\.\d+\.\d+\.\d+ as-number \d+\s*\n\s*peer \d+\.\d+\.\d+\.\d+ group Leaf-IPv4\s*\n\s*peer \d+\.\d+\.\d+\.\d+ description \S+)+'
-                                     '\s*\n\s*peer Leaf-IPv4 route-policy To-Server-Leaf export\s*\n\s*peer Leaf-IPv4 advertise-community\s*\n\s*peer Leaf-IPv4 route-update-interval 0\s*\n\s*group SuperSpine-IPv4 external\s*\n\s*peer SuperSpine-IPv4 as-number \d+'
-                                     '(:?\s*\n\s*peer \d+\.\d+\.\d+\.\d+ as-number \d+\s*\n\s*peer \d+\.\d+\.\d+\.\d+ group SuperSpine-IPv4\s*\n\s*peer \d+\.\d+\.\d+\.\d+ description \S+)+'
-                                     '\s*\n\s*peer SuperSpine-IPv4 route-policy To-SuperSpine-CMB-PRD-CRI-IPv4 export\s*\n\s*peer SuperSpine-IPv4 advertise-community\s*\n\s*peer SuperSpine-IPv4 route-update-interval 0\s*\n\s*#\s*\n\s*'
-                                     'ipv4-family vpn-instance CMB-PRD-STD'
-                                     '\s*\n\s*maximum load-balancing 32\s*\n\s*group Leaf-IPv4 external\s*\n\s*peer Leaf-IPv4 as-number \d+'
-                                     '(:?\s*\n\s*peer \d+\.\d+\.\d+\.\d+ as-number \d+\s*\n\s*peer \d+\.\d+\.\d+\.\d+ group Leaf-IPv4\s*\n\s*peer \d+\.\d+\.\d+\.\d+ description \S+)+'
-                                     '\s*\n\s*peer Leaf-IPv4 route-policy To-Server-Leaf export\s*\n\s*peer Leaf-IPv4 advertise-community\s*\n\s*peer Leaf-IPv4 route-update-interval 0\s*\n\s*group SuperSpine-IPv4 external\s*\n\s*peer SuperSpine-IPv4 as-number \d+'
-                                     '(:?\s*\n\s*peer \d+\.\d+\.\d+\.\d+ as-number \d+\s*\n\s*peer \d+\.\d+\.\d+\.\d+ group SuperSpine-IPv4\s*\n\s*peer \d+\.\d+\.\d+\.\d+ description \S+)+'
-                                     '\s*\n\s*peer SuperSpine-IPv4 advertise-community\s*\n\s*peer SuperSpine-IPv4 route-update-interval 0'
-                                     '[\s\S]*?route-policy To-Server-Leaf permit node 10\s*\n\s*apply as-path \d+ overwrite[\s\S]*?route-policy To-SuperSpine-CMB-PRD-CRI-IPv4 deny node 10\s*\n\s*if-match ip-prefix Static-SLF-CMB-PRD-CRI-IPv4')
-                    # leaf邻居配置检查格式
-                    leafBgp = ('group Spine-IPv4 external\s*\n\s*peer Spine-IPv4 as-number \d+'
-                               '(:?\s*\n\s*peer \d+\.\d+\.\d+\.\d+ as-number \d+\s*\n\s*peer \d+\.\d+\.\d+\.\d+ group Spine-IPv4\s*\n\s*peer \d+\.\d+\.\d+\.\d+ description \S+)+'
-                               '\s*\n\s*#\s*\n\s*ipv4-family unicast'
-                               '(:?\s*\n\s*network \d+\.\d+\.\d+\.\d+ \d+\.\d+\.\d+\.\d+)+'
-                               '\s*\n\s*maximum load-balancing 32\s*\n\s* peer Spine-IPv4 enable\s*\n\s*peer Spine-IPv4 advertise-community\s*\n\s*  peer Spine-IPv4 route-update-interval 0'
-                               '(:?\s*\n\s*peer \d+\.\d+\.\d+\.\d+ enable\s*\n\s*peer \d+\.\d+\.\d+\.\d+ group Spine-IPv4)+')
-                    matchPart = re.compile(
-                        r'bgp \d+\s*\n\s*router-id \d+\.\d+\.\d+\.\d+\s*\n\s*timer keepalive 30 hold 90\s*\n\s*advertise lowest-priority all-address-family peer-up delay 120\s*\n\s*private-4-byte-as disable\s*\n\s*'  # bgp基础配置
-                        rf'(?:(?={SpineIpv4Bgp})|(?={spineVpnv4Bgp})|(?={leafBgp}))', re.IGNORECASE)  # 组配置
-                    matchbgpGenInfo = matchPart.search(fileTxt)
-                    if matchbgpGenInfo:
-                        checkResult.append('通过')
-                    else:
-                        checkResult.append('未通过')
-                else:
-                    checkResult.append('不涉及')
-
-            case 'snmp配置':
-                if value == 1:
-                    # 执行snmp配置检查逻辑
-                    if genCheckOtion(
-                            'snmp-agent\s*\n\s*'
-                            'snmp-agent local-engineid \S+\s*\n\s*'
-                            'snmp-agent community read cipher.*?mib-view iso-view.*?\s*\n\s*'
-                            '#\s*\n\s*'
-                            'snmp-agent sys-info location.*?\s*\n\s*'
-                            'snmp-agent sys-info version v2c v3\s*\n\s*'
-                            'snmp-agent community complexity-check disable\s*\n\s*'
-                            '#\s*\n\s*'
-                            'snmp-agent usm-user password complexity-check disable\s*\n\s*'
-                            'snmp-agent mib-view included iso-view iso\s*\n\s*'
-                            '#\s*\n\s*'
-                            'snmp-agent blacklist ip-block disable\s*\n\s*'
-                            '#\s*\n\s*'
-                            'snmp-agent protocol source-status all-interface\s*\n\s*'
-                            'undo snmp-agent protocol source-status ipv6 all-interface\s*\n\s*'
-                            '#\s*\n\s*'
-                            'undo snmp-agent proxy protocol source-status all-interface\s*\n\s*'
-                            'undo snmp-agent proxy protocol source-status ipv6 all-interface',
-                            fileTxt):
-                        checkResult.append('通过')
-                    else:
-                        checkResult.append('未通过')
-                else:
-                    checkResult.append('不涉及')
-
-            case 'LLDP配置':
-                if value == 1:
-                    # 执行LLDP配置检查逻辑
-                    if genCheckOtion('#\s*\n\s*lldp enable\s*\n\s*#', fileTxt):
-                        checkResult.append('通过')
-                    else:
-                        checkResult.append('未通过')
-                else:
-                    checkResult.append('不涉及')
-
-            case 'ssh配置':
-                if value == 1:
-                    # 执行ssh配置检查逻辑
-                    if genCheckOtion(
-                            'stelnet server enable\s*\n\s*'
-                            'ssh server rsa-key min-length 3072\s*\n\s*'
-                            'ssh server-source all-interface\s*\n\s*'
-                            'undo ssh ipv6 server-source all-interface\s*\n\s*'
-                            'ssh authorization-type default aaa\s*\n\s*'
-                            '#\s*\n\s*'
-                            'ssh server cipher aes256_gcm aes128_gcm aes256_ctr aes192_ctr aes128_ctr aes256_cbc aes192_cbc aes128_cbc arcfour256 arcfour128 3des_cbc blowfish_cbc des_cbc\s*\n\s*'
-                            'ssh server hmac sha2_512 sha2_256_96 sha2_256 sha1 sha1_96 md5 md5_96\s*\n\s*'
-                            'ssh server key-exchange dh_group_exchange_sha256 dh_group_exchange_sha1 dh_group14_sha1 dh_group1_sha1 ecdh_sha2_nistp256 ecdh_sha2_nistp384 ecdh_sha2_nistp521 sm2_kep dh_group16_sha512 curve25519_sha256\s*\n\s*'
-                            '#\s*\n\s*'
-                            'ssh server publickey dsa ecc rsa rsa_sha2_256 rsa_sha2_512\s*\n\s*'
-                            '#\s*\n\s*'
-                            'ssh server dh-exchange min-len 2048\s*\n\s*'
-                            '#\s*\n\s*'
-                            'ssh client publickey ecc rsa_sha2_256 rsa_sha2_512\s*\n\s*'
-                            '#\s*\n\s*'
-                            'ssh client cipher aes256_gcm aes128_gcm aes256_ctr aes192_ctr aes128_ctr\s*\n\s*'
-                            'ssh client hmac sha2_512 sha2_256\s*\n\s*'
-                            'ssh client key-exchange dh_group_exchange_sha256 dh_group16_sha512',
-                            fileTxt) or genCheckOtion('stelnet server enable\s*\n\s*'
-                                                      'ssh server rsa-key min-length 3072\s*\n\s*'
-                                                      'undo ssh server authentication-type keyboard-interactive enable\s*\n\s*'
-                                                      'ssh server-source all-interface\s*\n\s*'
-                                                      'undo ssh ipv6 server-source all-interface\s*\n\s*'
-                                                      'ssh authorization-type default aaa\s*\n\s*'
-                                                      '#\s*\n\s*'
-                                                      'ssh server cipher aes256_gcm aes128_gcm aes256_ctr aes192_ctr aes128_ctr aes256_cbc aes128_cbc 3des_cbc\s*\n\s*'
-                                                      'ssh server hmac sha2_512 sha2_256_96 sha2_256 sha1 sha1_96 md5 md5_96\s*\n\s*'
-                                                      'ssh server key-exchange dh_group_exchange_sha256 dh_group_exchange_sha1 dh_group14_sha1 dh_group1_sha1 ecdh_sha2_nistp256 ecdh_sha2_nistp384 ecdh_sha2_nistp521 sm2_kep dh_group16_sha512\s*\n\s*'
-                                                      '#\s*\n\s*'
-                                                      'ssh server publickey dsa ecc rsa rsa_sha2_256 rsa_sha2_512\s*\n\s*'
-                                                      '#\s*\n\s*'
-                                                      'ssh server dh-exchange min-len 2048\s*\n\s*'
-                                                      '#\s*\n\s*'
-                                                      'ssh client publickey ecc rsa_sha2_256 rsa_sha2_512\s*\n\s*'
-                                                      '#\s*\n\s*'
-                                                      'ssh client cipher aes256_gcm aes128_gcm aes256_ctr aes192_ctr aes128_ctr\s*\n\s*'
-                                                      'ssh client hmac sha2_512 sha2_256\s*\n\s*'
-                                                      'ssh client key-exchange dh_group_exchange_sha256 dh_group16_sha512\s*\n\s*',
-                                                      fileTxt):
-                        checkResult.append('通过')
-                    else:
-                        checkResult.append('未通过')
-                else:
-                    checkResult.append('不涉及')
-
-            case 'cmd权限配置':
-                if value == 1:
-                    # 执行cmd权限配置检查逻辑
-                    if genCheckOtion(
-                            'command-privilege level 1 view shell dir\s*\n\s*'
-                            'command-privilege level 1 view global display\s*\n\s*'
-                            'command-privilege level 1 view shell save\s*\n\s*'
-                            'command-privilege level 1 view shell screen-length',
-                            fileTxt):
-                        checkResult.append('通过')
-                    else:
-                        checkResult.append('未通过')
-                else:
-                    checkResult.append('不涉及')
-
-            case 'user-interface配置':
-                if value == 1:
-                    # 执行user-interface配置检查逻辑
-                    if genCheckOtion(
-                            'user-interface maximum-vty 21\s*\n\s*'
-                            '#\s*\n\s*'
-                            'user-interface con 0\s*\n\s*'
-                            'authentication-mode password\s*\n\s*'
-                            'set authentication password cipher \S+\s*\n\s*'
-                            'idle-timeout 10 0\s*\n\s*'
-                            '#\s*\n\s*'
-                            'user-interface vty 0 20\s*\n\s*'
-                            'authentication-mode aaa\s*\n\s*'
-                            'user privilege level 3\s*\n\s*'
-                            'protocol inbound ssh',
-                            fileTxt):
-                        checkResult.append('通过')
-                    else:
-                        checkResult.append('未通过')
-                else:
-                    checkResult.append('不涉及')
-
-            case 'hash配置':
-                if value == 1:
-                    # 执行hash配置检查逻辑
-                    if genCheckOtion('#\s*\n\s*'
-                                     'load-balance ecmp\s*\n\s*'
-                                     'hashmode (underlay)? 2\s*\n\s*'
-                                     '#', fileTxt):
-                        checkResult.append('通过')
-                    else:
-                        checkResult.append('未通过')
-                else:
-                    checkResult.append('不涉及')
-
-            case '带外接口配置':
-                if value == 1:
-                    # 执行带外接口配置检查逻辑
-                    if genCheckOtion(
-                            'interface MEth\S+\s*\n\s*'
-                            'description Out-Of-OOB\s*\n\s*'
-                            'ip binding vpn-instance OOB\s*\n\s*'
-                            'ip address \d+\.\d+\.\d+\.\d+ 255.255.255.0',
-                            fileTxt):
-                        checkResult.append('通过')
-                    else:
-                        checkResult.append('未通过')
-                else:
-                    checkResult.append('不涉及')
-
-            case 'loopback配置':
-                if value == 1:
-                    # 执行loopback配置检查逻辑
-                    if genCheckOtion(
-                            'interface LoopBack1\s*\n\s*'
-                            'description \S+\s*\n\s*'
-                            '(?:ip binding vpn-instance\s+\S+\s*\n\s*)?'
-                            'ip address \d+\.\d+\.\d+\.\d+ 255.255.255.255',
-                            fileTxt):
-                        checkResult.append('通过')
-                    else:
-                        checkResult.append('未通过')
-                else:
-                    checkResult.append('不涉及')
-
-            case 'peerlink配置':
-                if value == 1:
-                    # 执行peerlink配置检查逻辑
-                    matchPeerlinkEth = re.search(
-                        r'interface Eth-Trunk100\s*\n\s*'
-                        r'description To_\S+_Eth-Trunk100\s*\n\s*'
-                        r'mode lacp-static\s*\n\s*'
-                        r'peer-link 1',
-                        fileTxt,
-                        re.IGNORECASE)
-                    matchPeerlinkPort = re.findall(
-                        r'interface 100GE1/0/[37]\s*\n\s*'
-                        r'description To_\S+_100GE1/0/[37]\s*\n\s*'
-                        r'eth-trunk 100',
-                        fileTxt,
-                        re.IGNORECASE)
-                    matchPeerlinkPortSlf = re.findall(
-                        r'interface 25GE1/0/\d{2}\s*\n\s*'
-                        r'description To_\S+_25GE1/0/\d{2}\s*\n\s*'
-                        r'eth-trunk 100', fileTxt, re.IGNORECASE)
-                    if checkItems['type'] in ['Slf']:
-                        if matchPeerlinkEth and len(matchPeerlinkPortSlf) == 8:  # Sleaf8个端口
-                            checkResult.append('通过')
-                        else:
-                            # print(checkItems)
-                            checkResult.append('未通过')
-                    else:
-                        if matchPeerlinkEth and len(matchPeerlinkPort) == 2:
-                            checkResult.append('通过')
-                        else:
-                            checkResult.append('未通过')
-                            # print(bool(matchPeerlinkEth),len(matchPeerlinkPort))
-                            # print(checkItems)
-                else:
-                    checkResult.append('不涉及')
-
-            case 'DAD配置':
-                if value == 1:
-                    # 执行DAD配置检查逻辑
-                    matchDadEth = re.search(
-                        r'interface Eth-Trunk101\s*\n\s*'
-                        r'undo portswitch\s*\n\s*'
-                        r'description To_\S+_Eth-Trunk101\s*\n\s*'
-                        r'ip binding vpn-instance DAD\s*\n\s*'
-                        r'ip address \d+\.\d+\.\d+\.\d+ 255.255.255.252\s*\n\s*'
-                        r'mode lacp-static\s*\n\s*'
-                        r'm-lag unpaired-port reserved',
-                        fileTxt,
-                        re.IGNORECASE)
-                    matchDadPort = re.findall(
-                        r'interface 25GE1/0/4[678]\s*\n\s*'
-                        r'description To_\S+_25GE1/0/4[678]\s*\n\s*'
-                        r'eth-trunk 101',
-                        fileTxt,
-                        re.IGNORECASE)
-                    if matchDadEth and len(matchDadPort) == 2:
-                        checkResult.append('通过')
-                    else:
-                        checkResult.append('未通过')
-                else:
-                    checkResult.append('不涉及')
-
-            case 'monitor-link配置':
-                if value == 1:
-                    # 执行monitor-link配置检查逻辑
-                    # leaf
-                    matchMonitorLinkInfo = genCheckOtion(
-                        'monitor-link group 1\s*\n\s*'
-                        'port 100GE1/0/1 uplink\s*\n\s*'
-                        'port 100GE1/0/2 uplink\s*\n\s*'
-                        'port 100GE1/0/5 uplink\s*\n\s*'
-                        'port 100GE1/0/6 uplink\s*\n\s*'
-                        'port 25GE1/0/1 downlink 1\s*\n\s*'
-                        'port 25GE1/0/2 downlink 2\s*\n\s*'
-                        'port 25GE1/0/3 downlink 3\s*\n\s*'
-                        'port 25GE1/0/4 downlink 4\s*\n\s*'
-                        'port 25GE1/0/5 downlink 5\s*\n\s*'
-                        'port 25GE1/0/6 downlink 6\s*\n\s*'
-                        'port 25GE1/0/7 downlink 7\s*\n\s*'
-                        'port 25GE1/0/8 downlink 8\s*\n\s*'
-                        'port 25GE1/0/9 downlink 9\s*\n\s*'
-                        'port 25GE1/0/10 downlink 10\s*\n\s*'
-                        'port 25GE1/0/11 downlink 11\s*\n\s*'
-                        'port 25GE1/0/12 downlink 12\s*\n\s*'
-                        'port 25GE1/0/13 downlink 13\s*\n\s*'
-                        'port 25GE1/0/14 downlink 14\s*\n\s*'
-                        'port 25GE1/0/15 downlink 15\s*\n\s*'
-                        'port 25GE1/0/16 downlink 16\s*\n\s*'
-                        'port 25GE1/0/17 downlink 17\s*\n\s*'
-                        'port 25GE1/0/18 downlink 18\s*\n\s*'
-                        'port 25GE1/0/19 downlink 19\s*\n\s*'
-                        'port 25GE1/0/20 downlink 20\s*\n\s*'
-                        'port 25GE1/0/21 downlink 21\s*\n\s*'
-                        'port 25GE1/0/22 downlink 22\s*\n\s*'
-                        'port 25GE1/0/23 downlink 23\s*\n\s*'
-                        'port 25GE1/0/24 downlink 24\s*\n\s*'
-                        'port 25GE1/0/25 downlink 25\s*\n\s*'
-                        'port 25GE1/0/26 downlink 26\s*\n\s*'
-                        'port 25GE1/0/27 downlink 27\s*\n\s*'
-                        'port 25GE1/0/28 downlink 28\s*\n\s*'
-                        'port 25GE1/0/29 downlink 29\s*\n\s*'
-                        'port 25GE1/0/30 downlink 30\s*\n\s*'
-                        'port 25GE1/0/31 downlink 31\s*\n\s*'
-                        'port 25GE1/0/32 downlink 32\s*\n\s*'
-                        'port 25GE1/0/33 downlink 33\s*\n\s*'
-                        'port 25GE1/0/34 downlink 34\s*\n\s*'
-                        'port 25GE1/0/35 downlink 35\s*\n\s*'
-                        'port 25GE1/0/36 downlink 36\s*\n\s*'
-                        'port 25GE1/0/37 downlink 37\s*\n\s*'
-                        'port 25GE1/0/38 downlink 38\s*\n\s*'
-                        'port 25GE1/0/39 downlink 39\s*\n\s*'
-                        'port 25GE1/0/40 downlink 40\s*\n\s*'
-                        'port 25GE1/0/41 downlink 41\s*\n\s*'
-                        'port 25GE1/0/42 downlink 42\s*\n\s*'
-                        'port 25GE1/0/43 downlink 43\s*\n\s*'
-                        'port 25GE1/0/44 downlink 44\s*\n\s*'
-                        'port 25GE1/0/45 downlink 45\s*\n\s*'
-                        'port 25GE1/0/4[68] downlink 4[68]\s*\n\s*'
-                        'timer recover-time 40',
-                        fileTxt)
-                    # Sleaf
-                    matchMonitorLinkSlfInfo = genCheckOtion(
-                        'monitor-link group 1\s*\n\s*'
-                        'port 100GE1/0/1 uplink\s*\n\s*'
-                        'port 100GE1/0/2 uplink\s*\n\s*'
-                        'port 100GE1/0/5 uplink\s*\n\s*'
-                        'port 100GE1/0/6 uplink\s*\n\s*'
-                        'port 25GE1/0/1 downlink 1\s*\n\s*'
-                        'port 25GE1/0/2 downlink 2\s*\n\s*'
-                        'port 25GE1/0/3 downlink 3\s*\n\s*'
-                        'port 25GE1/0/4 downlink 4\s*\n\s*'
-                        'port 25GE1/0/5 downlink 5\s*\n\s*'
-                        'port 25GE1/0/6 downlink 6\s*\n\s*'
-                        'port 25GE1/0/7 downlink 7\s*\n\s*'
-                        'port 25GE1/0/8 downlink 8\s*\n\s*'
-                        'port 25GE1/0/9 downlink 9\s*\n\s*'
-                        'port 25GE1/0/10 downlink 10\s*\n\s*'
-                        'port 25GE1/0/11 downlink 11\s*\n\s*'
-                        'port 25GE1/0/12 downlink 12\s*\n\s*'
-                        'port 25GE1/0/13 downlink 13\s*\n\s*'
-                        'port 25GE1/0/14 downlink 14\s*\n\s*'
-                        'port 25GE1/0/15 downlink 15\s*\n\s*'
-                        'port 25GE1/0/16 downlink 16\s*\n\s*'
-                        'port 25GE1/0/17 downlink 17\s*\n\s*'
-                        'port 25GE1/0/18 downlink 18\s*\n\s*'
-                        'port 25GE1/0/19 downlink 19\s*\n\s*'
-                        'port 25GE1/0/20 downlink 20\s*\n\s*'
-                        'port 25GE1/0/21 downlink 21\s*\n\s*'
-                        'port 25GE1/0/22 downlink 22\s*\n\s*'
-                        'port 25GE1/0/23 downlink 23\s*\n\s*'
-                        'port 25GE1/0/24 downlink 24\s*\n\s*'
-                        'port 25GE1/0/25 downlink 25\s*\n\s*'
-                        'port 25GE1/0/26 downlink 26\s*\n\s*'
-                        'port 25GE1/0/27 downlink 27\s*\n\s*'
-                        'port 25GE1/0/28 downlink 28\s*\n\s*'
-                        'port 25GE1/0/29 downlink 29\s*\n\s*'
-                        'port 25GE1/0/30 downlink 30\s*\n\s*'
-                        'port 25GE1/0/31 downlink 31\s*\n\s*'
-                        'port 25GE1/0/32 downlink 32\s*\n\s*'
-                        'port 25GE1/0/33 downlink 33\s*\n\s*'
-                        'port 25GE1/0/34 downlink 34\s*\n\s*'
-                        'port 25GE1/0/35 downlink 35\s*\n\s*'
-                        'port 25GE1/0/36 downlink 36\s*\n\s*'
-                        'port 25GE1/0/37 downlink 37\s*\n\s*'
-                        'port 100GE1/0/3 downlink 103\s*\n\s*'
-                        'port 100GE1/0/7 downlink 107\s*\n\s*'
-                        'timer recover-time 40',
-                        fileTxt)
-                    if checkItems['type'] in ['Slf']:
-                        if matchMonitorLinkSlfInfo:
-                            checkResult.append('通过')
-                        else:
-                            checkResult.append('未通过')
-                    else:
-                        if matchMonitorLinkInfo:
-                            checkResult.append('通过')
-                        else:
-                            checkResult.append('未通过')
-                else:
-                    checkResult.append('不涉及')
-
-            case _:
+    # ---- 遍历检查项配置表，分发到各检查函数 ----
+    for checkItem, value in checkItems['checkOption'].items():
+        logger.get_log().info(
+            f'{checkItems["name"]}的检查项"{checkItem}"设置为"{value}",开始检查'
+        )
+        if value == 1:
+            checker = _CHECKERS.get(checkItem)
+            if checker:
+                checkResult.append(checker(fileTxt, checkItems))
+            else:
                 checkResult.append(f'未知配置项: {checkItem}')
-        logger.get_log().info(f'{checkItems["name"]}的检查项\"{checkItem}\"设置为\"{value}\",检查完成')
+        else:
+            checkResult.append('不涉及')
+        logger.get_log().info(
+            f'{checkItems["name"]}的检查项"{checkItem}"设置为"{value}",检查完成'
+        )
     return checkResult
 
 
+# ============================================================
+# 以下为各检查项的具体实现函数
+# 命名规则：_check_xxx(fileTxt, checkItems) -> str
+# 每个函数只包含核心检查逻辑，返回结果字符串
+# ============================================================
+
+def _check_version(fileTxt, checkItems):
+    """检查交换机版本号"""
+    matchVerinfo = re.findall(r'Version \S+ \((\S+)\)', fileTxt)
+    return matchVerinfo[0] if matchVerinfo else '未匹配到'
+
+
+def _check_patch(fileTxt, checkItems):
+    """检查补丁版本号"""
+    matchPatInfo = re.findall(r'Patch Package Version\s?\:(\S+)', fileTxt)
+    return matchPatInfo[0] if matchPatInfo else '未匹配到'
+
+
+def _check_extra_files(fileTxt, checkItems):
+    """检查 flash 中多余文件（.cc .pat .cfg）"""
+    matchDirInfo = re.search(r'Directory of flash[\s\S]*?<', fileTxt, re.IGNORECASE)
+    if not matchDirInfo:
+        return '未匹配到'
+    dirInfo = matchDirInfo.group()
+    verCount = len(re.findall(
+        r'\d+\s+\S+\s+\S+\s+\S+\s\d+\s\d+\s\d+\:\d+\:\d+\s+\S+\.cc',
+        dirInfo, re.IGNORECASE
+    ))
+    patCount = len(re.findall(
+        r'\d+\s+\S+\s+\S+\s+\S+\s\d+\s\d+\s\d+\:\d+\:\d+\s+\S+\.pat',
+        dirInfo, re.IGNORECASE
+    ))
+    cfgCount = len(re.findall(
+        r'\d+\s+\S+\s+\S+\s+\S+\s\d+\s\d+\s\d+\:\d+\:\d+\s+\S+\.cfg',
+        dirInfo, re.IGNORECASE
+    ))
+    if verCount == 1 and patCount == 1 and cfgCount <= 1:
+        return '通过'
+    elif verCount == 0 and patCount == 0 and cfgCount == 0:
+        return '未匹配到'
+    else:
+        return 'cc:%d,pat:%d,cfg:%d' % (verCount, patCount, cfgCount)
+
+
+def _check_hardware(fileTxt, checkItems):
+    """检查硬件设备状态（有无 Offline/Unregistered/Abnormal）"""
+    deviceInfo = re.search(r'Device status:[\s\S]*?<', fileTxt, re.IGNORECASE)
+    if not deviceInfo:
+        return '未匹配到'
+    statusStr = ['Offline', 'Unregistered', 'Abnormal']
+    for s in statusStr:
+        if s in deviceInfo.group():
+            return '未通过'
+    return '通过'
+
+
+def _check_open_ports(fileTxt, checkItems):
+    """检查是否存在 down 状态但未 shutdown 的端口"""
+    matchDownPortInfo = re.findall(
+        r'(?:Multi|100|25|10)GE\d+\/\d+\/\d+\s+(down|down\(ed\)|down\(b\))'
+        r'(?:\s+\S+){3}\s+\d+\s+\d+',
+        fileTxt, re.IGNORECASE
+    )
+    if matchDownPortInfo:
+        return str(len(matchDownPortInfo))
+    return '通过'
+
+
+def _check_bgp_neighbor(fileTxt, checkItems):
+    """检查 BGP 邻居状态"""
+    bgpInfo = re.search(r'BGP local router ID[\s\S]*?<', fileTxt, re.IGNORECASE)
+    if not bgpInfo:
+        return '未匹配到'
+    bgpNum = re.findall(r'Total number of peers\s+\:\s+(\d+)', bgpInfo.group(), re.IGNORECASE)
+    if not bgpNum:
+        return '未匹配到'
+    normalBgpNum = len(re.findall(
+        r'\d+\.\d+\.\d+\.\d+(:?\s+\d+){5}\s+\S+\s+Established',
+        bgpInfo.group(), re.IGNORECASE
+    ))
+    return '邻居数量:%s,正常邻居数量:%d' % (bgpNum[0], normalBgpNum)
+
+
+def _check_feature_software(fileTxt, checkItems):
+    """检查 feature-software 状态"""
+    matchFeaInfo = re.search(r'FeatureName[\s\S]*?<', fileTxt)
+    if not matchFeaInfo:
+        return '未匹配到'
+    featureInfo = re.findall(
+        r'(:?PKG_PNF|AIFABRIC|TELEMETRY|WEAKEA)\s+\S+\.cc\s+active\s+'
+        r'\S+\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}',
+        matchFeaInfo.group(), re.IGNORECASE
+    )
+    return '通过' if len(featureInfo) >= 4 else '未通过'
+
+
+def _check_failed_commands(fileTxt, checkItems):
+    """检查配置回滚的失败命令数量"""
+    matchRecover = re.findall(r'The number of failed commands is (\d+)', fileTxt, re.IGNORECASE)
+    if not matchRecover:
+        return '未匹配到'
+    return '通过' if matchRecover[0] == '0' else matchRecover[0]
+
+
+def _check_esn(fileTxt, checkItems):
+    """检查设备 ESN 序列号"""
+    esnInfo = re.search(r'ESN:\s*(\w+)', fileTxt, re.IGNORECASE)
+    return esnInfo.group(1) if esnInfo else '未匹配到'
+
+
+def _check_ftp_disabled(fileTxt, checkItems):
+    """检查是否关闭 FTP 服务"""
+    return '通过' if genCheckOtion(
+        r'undo ftp server source all-interface\s*\n\s*'
+        r'undo ftp ipv6 server source all-interface',
+        fileTxt
+    ) else '未通过'
+
+
+def _check_mlag_status(fileTxt, checkItems):
+    """检查 M-LAG 心跳/主备状态"""
+    return '通过' if genCheckOtion(
+        r'Heart beat state\s+\:\s+OK\s*\n\s*'
+        r'Node [12][\s\S]*?State\s+\:\s+(:?Backup|Master)[\s\S]*?'
+        r'Node [12][\s\S]*?State\s+\:\s+(:?Backup|Master)',
+        fileTxt
+    ) else '未通过'
+
+
+def _check_mlag_config(fileTxt, checkItems):
+    """检查 dfs-group / M-LAG 配置"""
+    return '通过' if genCheckOtion(
+        r'#\s*\n\s*'
+        r'dfs-group 1\s*\n\s*'
+        r'authentication-mode hmac-sha256 password \S+\s*\n\s*'
+        r'dual-active detection source ip \S+ vpn-instance DAD peer \S+\s*\n\s*'
+        r'm-lag up-delay 90\s*\n\s*'
+        r'priority 1[25]0\s*\n\s*'
+        r'#',
+        fileTxt
+    ) else '未通过'
+
+
+def _check_large_route(fileTxt, checkItems):
+    """检查大路由配置（system resource large-route）"""
+    if genCheckOtion(
+        r'#\s*\n\s*system resource large-route\s*\n\s*#',
+        fileTxt
+    ):
+        return '通过'
+    # 排除 CE6866 和 k8s vlanif
+    if (genCheckOtion(r'HUAWEI CE6866\S+ uptime is', fileTxt) or
+            genCheckOtion(r'interface Vlanif\d+\s*\n\s*description\s+.*?k8s', fileTxt)):
+        return '不涉及'
+    return '未通过'
+
+
+def _check_ntp(fileTxt, checkItems):
+    """检查 NTP 源接口关闭配置"""
+    return '通过' if genCheckOtion(
+        r'ntp server source-interface all disable\s*\n\s*'
+        r'ntp ipv6 server source-interface all disable',
+        fileTxt
+    ) else '未通过'
+
+
+def _check_vlan_global(fileTxt, checkItems):
+    """检查全局 vlan batch 配置"""
+    matchVlanInfo = re.search(r'vlan batch\s+(.*)', fileTxt)
+    return matchVlanInfo.group(1) if matchVlanInfo else '未匹配到'
+
+
+def _check_mac_flapping(fileTxt, checkItems):
+    """检查 MAC 飘移检测配置"""
+    return '通过' if genCheckOtion(
+        r'mac-address flapping detection security-level low\s*\n\s*'
+        r'mac-address flapping periodical trap enable',
+        fileTxt
+    ) else '未通过'
+
+
+def _check_stp(fileTxt, checkItems):
+    """检查 STP/RSTP 基础配置"""
+    return '通过' if genCheckOtion(
+        r'stp bridge-address \d{4}-\d{4}-\d{4}\s*\n\s*'
+        r'stp mode rstp\s*\n\s*'
+        r'stp v-stp enable\s*\n\s*'
+        r'stp instance 0 root primary\s*\n\s*'
+        r'stp bpdu-protection\s*\n\s*'
+        r'stp tc-protection',
+        fileTxt
+    ) else '未通过'
+
+
+def _check_arp_conflict(fileTxt, checkItems):
+    """检查 ARP 冲突检测配置"""
+    return '通过' if genCheckOtion(
+        r'#\s*\n\s*arp ip-conflict-detect enable\s*\n\s*#',
+        fileTxt
+    ) else '未通过'
+
+
+def _check_telnet_disabled(fileTxt, checkItems):
+    """检查是否关闭 Telnet 服务"""
+    return '通过' if genCheckOtion(
+        r'telnet server disable\s*\n\s*'
+        r'telnet ipv6 server disable\s*\n\s*'
+        r'undo telnet server-source all-interface\s*\n\s*'
+        r'undo telnet ipv6 server-source all-interface',
+        fileTxt
+    ) else '未通过'
+
+
+def _check_vpn_instance(fileTxt, checkItems):
+    """检查 VPN 实例 OOB / DAD 配置"""
+    matchOob = re.search(
+        r'#\s*\n\s*'
+        r'ip vpn-instance OOB\s*\n\s*'
+        r'ipv4-family\s*\n\s*'
+        r'(route-distinguisher 200:1\s*\n\s*)?'
+        r'#',
+        fileTxt, re.IGNORECASE
+    )
+    matchDad = re.search(
+        r'#\s*\n\s*'
+        r'ip vpn-instance DAD\s*\n\s*'
+        r'ipv4-family\s*\n\s*'
+        r'#',
+        fileTxt, re.IGNORECASE
+    )
+    if checkItems['type'] in ['Leaf']:  # Leaf 必须包含 2 个实例
+        return '通过' if (matchOob and matchDad) else '未通过'
+    else:  # 其他只需要 OOB 实例
+        return '通过' if matchOob else '未通过'
+
+
+def _check_aaa(fileTxt, checkItems):
+    """检查 AAA 认证配置"""
+    return '通过' if genCheckOtion(
+        r'aaa\s*\n\s*'
+        r'authentication-scheme default\s*\n\s*'
+        r'authentication-mode local\s*\n\s*'
+        r'authorization-scheme default\s*\n\s*'
+        r'authorization-mode local\s*\n\s*'
+        r'accounting-scheme default\s*\n\s*'
+        r'accounting-mode none\s*\n\s*'
+        r'local-aaa-user password policy administrator\s*\n\s*'
+        r'password history record number 0\s*\n\s*'
+        r'password alert before-expire 0\s*\n\s*'
+        r'undo password alert original\s*\n\s*'
+        r'password expire 0\s*\n\s*'
+        r'domain default\s*\n\s*'
+        r'authentication-scheme default\s*\n\s*'
+        r'accounting-scheme default\s*\n\s*'
+        r'domain default_admin\s*\n\s*'
+        r'authentication-scheme default\s*\n\s*'
+        r'accounting-scheme default\s*\n\s*'
+        r'local-aaa-user user-name complexity-check disable\s*\n\s*'
+        r'(?:local-user (?:admin|nmsuser) password irreversible-cipher \S+\s*\n\s*'
+        r'local-user (?:admin|nmsuser) password-force-change disable\s*\n\s*'
+        r'local-user (?:admin|nmsuser) privilege level [13]\s*\n\s*'
+        r'local-user (?:admin|nmsuser) service-type terminal ssh\s*\n\s*){2}',
+        fileTxt
+    ) else '未通过'
+
+
+def _check_bgp(fileTxt, checkItems):
+    """检查 BGP 配置（包含 Spine/Leaf 不同模板）"""
+    # Spine IPv4 邻居配置格式
+    SpineIpv4Bgp = (
+        r'group Leaf-IPv4 external\s*\n\s*'
+        r'peer Leaf-IPv4 as-number \d+'
+        r'(:?\s*\n\s*peer \d+\.\d+\.\d+\.\d+ as-number \d+\s*\n\s*'
+        r'peer \d+\.\d+\.\d+\.\d+ group Leaf-IPv4\s*\n\s*'
+        r'peer \d+\.\d+\.\d+\.\d+ description \S+)+'
+        r'\s*\n\s*'
+        r'group SuperSpine-IPv4 external\s*\n\s*'
+        r'peer SuperSpine-IPv4 as-number \d+'
+        r'(:?\s*\n\s*peer \d+\.\d+\.\d+\.\d+ as-number \d+\s*\n\s*'
+        r'peer \d+\.\d+\.\d+\.\d+ group SuperSpine-IPv4\s*\n\s*'
+        r'peer \d+\.\d+\.\d+\.\d+ description \S+)+'
+        r'\s*\n\s*#\s*\n\s*ipv4-family unicast'
+        r'(:?\s*\n\s*network \d+\.\d+\.\d+\.\d+ \d+\.\d+\.\d+\.\d+)+'
+        r'\s*\n\s*maximum load-balancing 32\s*\n\s*'
+        r' peer Leaf-IPv4 enable\s*\n\s*'
+        r'peer Leaf-IPv4 route-policy To-Server-Leaf export\s*\n\s*'
+        r'peer Leaf-IPv4 advertise-community\s*\n\s*'
+        r'  peer Leaf-IPv4 route-update-interval 0'
+        r'(:?\s*\n\s*peer \d+\.\d+\.\d+\.\d+ enable\s*\n\s*'
+        r'peer \d+\.\d+\.\d+\.\d+ group Leaf-IPv4)+'
+        r'\s*\n\s*'
+        r'peer SuperSpine-IPv4 enable\s*\n\s*'
+        r'peer SuperSpine-IPv4 advertise-community\s*\n\s*'
+        r'peer SuperSpine-IPv4 route-update-interval 0'
+        r'(:?\s*\n\s*peer \d+\.\d+\.\d+\.\d+ enable\s*\n\s*'
+        r'peer \d+\.\d+\.\d+\.\d+ group SuperSpine-IPv4)+'
+        r'[\s\S]*?'
+        r'route-policy To-Server-Leaf permit node 10\s*\n\s*'
+        r'apply as-path \d+ overwrite'
+    )
+    # Spine VPNv4 邻居配置格式
+    spineVpnv4Bgp = (
+        r'#\s*\n\s*ipv4-family unicast\s*\n\s*#\s*\n\s*'
+        r'ipv4-family vpn-instance CMB-PRD-CRI'
+        r'(:?\s*\n\s*network \d+\.\d+\.\d+\.\d+ \d+\.\d+\.\d+\.\d+)+'
+        r'\s*\n\s*maximum load-balancing 32\s*\n\s*'
+        r'group Leaf-IPv4 external\s*\n\s*'
+        r'peer Leaf-IPv4 as-number \d+'
+        r'(:?\s*\n\s*peer \d+\.\d+\.\d+\.\d+ as-number \d+\s*\n\s*'
+        r'peer \d+\.\d+\.\d+\.\d+ group Leaf-IPv4\s*\n\s*'
+        r'peer \d+\.\d+\.\d+\.\d+ description \S+)+'
+        r'\s*\n\s*'
+        r'peer Leaf-IPv4 route-policy To-Server-Leaf export\s*\n\s*'
+        r'peer Leaf-IPv4 advertise-community\s*\n\s*'
+        r'peer Leaf-IPv4 route-update-interval 0\s*\n\s*'
+        r'group SuperSpine-IPv4 external\s*\n\s*'
+        r'peer SuperSpine-IPv4 as-number \d+'
+        r'(:?\s*\n\s*peer \d+\.\d+\.\d+\.\d+ as-number \d+\s*\n\s*'
+        r'peer \d+\.\d+\.\d+\.\d+ group SuperSpine-IPv4\s*\n\s*'
+        r'peer \d+\.\d+\.\d+\.\d+ description \S+)+'
+        r'\s*\n\s*'
+        r'peer SuperSpine-IPv4 route-policy To-SuperSpine-CMB-PRD-CRI-IPv4 export\s*\n\s*'
+        r'peer SuperSpine-IPv4 advertise-community\s*\n\s*'
+        r'peer SuperSpine-IPv4 route-update-interval 0\s*\n\s*#\s*\n\s*'
+        r'ipv4-family vpn-instance CMB-PRD-STD'
+        r'\s*\n\s*maximum load-balancing 32\s*\n\s*'
+        r'group Leaf-IPv4 external\s*\n\s*'
+        r'peer Leaf-IPv4 as-number \d+'
+        r'(:?\s*\n\s*peer \d+\.\d+\.\d+\.\d+ as-number \d+\s*\n\s*'
+        r'peer \d+\.\d+\.\d+\.\d+ group Leaf-IPv4\s*\n\s*'
+        r'peer \d+\.\d+\.\d+\.\d+ description \S+)+'
+        r'\s*\n\s*'
+        r'peer Leaf-IPv4 route-policy To-Server-Leaf export\s*\n\s*'
+        r'peer Leaf-IPv4 advertise-community\s*\n\s*'
+        r'peer Leaf-IPv4 route-update-interval 0\s*\n\s*'
+        r'group SuperSpine-IPv4 external\s*\n\s*'
+        r'peer SuperSpine-IPv4 as-number \d+'
+        r'(:?\s*\n\s*peer \d+\.\d+\.\d+\.\d+ as-number \d+\s*\n\s*'
+        r'peer \d+\.\d+\.\d+\.\d+ group SuperSpine-IPv4\s*\n\s*'
+        r'peer \d+\.\d+\.\d+\.\d+ description \S+)+'
+        r'\s*\n\s*'
+        r'peer SuperSpine-IPv4 advertise-community\s*\n\s*'
+        r'peer SuperSpine-IPv4 route-update-interval 0'
+        r'[\s\S]*?'
+        r'route-policy To-Server-Leaf permit node 10\s*\n\s*'
+        r'apply as-path \d+ overwrite'
+        r'[\s\S]*?'
+        r'route-policy To-SuperSpine-CMB-PRD-CRI-IPv4 deny node 10\s*\n\s*'
+        r'if-match ip-prefix Static-SLF-CMB-PRD-CRI-IPv4'
+    )
+    # Leaf 邻居配置格式
+    leafBgp = (
+        r'group Spine-IPv4 external\s*\n\s*'
+        r'peer Spine-IPv4 as-number \d+'
+        r'(:?\s*\n\s*peer \d+\.\d+\.\d+\.\d+ as-number \d+\s*\n\s*'
+        r'peer \d+\.\d+\.\d+\.\d+ group Spine-IPv4\s*\n\s*'
+        r'peer \d+\.\d+\.\d+\.\d+ description \S+)+'
+        r'\s*\n\s*#\s*\n\s*ipv4-family unicast'
+        r'(:?\s*\n\s*network \d+\.\d+\.\d+\.\d+ \d+\.\d+\.\d+\.\d+)+'
+        r'\s*\n\s*maximum load-balancing 32\s*\n\s*'
+        r' peer Spine-IPv4 enable\s*\n\s*'
+        r'peer Spine-IPv4 advertise-community\s*\n\s*'
+        r'  peer Spine-IPv4 route-update-interval 0'
+        r'(:?\s*\n\s*peer \d+\.\d+\.\d+\.\d+ enable\s*\n\s*'
+        r'peer \d+\.\d+\.\d+\.\d+ group Spine-IPv4)+'
+    )
+    matchPart = re.compile(
+        r'bgp \d+\s*\n\s*'
+        r'router-id \d+\.\d+\.\d+\.\d+\s*\n\s*'
+        r'timer keepalive 30 hold 90\s*\n\s*'
+        r'advertise lowest-priority all-address-family peer-up delay 120\s*\n\s*'
+        r'private-4-byte-as disable\s*\n\s*'
+        rf'(?:(?={SpineIpv4Bgp})|(?={spineVpnv4Bgp})|(?={leafBgp}))',
+        re.IGNORECASE
+    )
+    return '通过' if matchPart.search(fileTxt) else '未通过'
+
+
+def _check_snmp(fileTxt, checkItems):
+    """检查 SNMP Agent 配置"""
+    return '通过' if genCheckOtion(
+        r'snmp-agent\s*\n\s*'
+        r'snmp-agent local-engineid \S+\s*\n\s*'
+        r'snmp-agent community read cipher.*?mib-view iso-view.*?\s*\n\s*'
+        r'#\s*\n\s*'
+        r'snmp-agent sys-info location.*?\s*\n\s*'
+        r'snmp-agent sys-info version v2c v3\s*\n\s*'
+        r'snmp-agent community complexity-check disable\s*\n\s*'
+        r'#\s*\n\s*'
+        r'snmp-agent usm-user password complexity-check disable\s*\n\s*'
+        r'snmp-agent mib-view included iso-view iso\s*\n\s*'
+        r'#\s*\n\s*'
+        r'snmp-agent blacklist ip-block disable\s*\n\s*'
+        r'#\s*\n\s*'
+        r'snmp-agent protocol source-status all-interface\s*\n\s*'
+        r'undo snmp-agent protocol source-status ipv6 all-interface\s*\n\s*'
+        r'#\s*\n\s*'
+        r'undo snmp-agent proxy protocol source-status all-interface\s*\n\s*'
+        r'undo snmp-agent proxy protocol source-status ipv6 all-interface',
+        fileTxt
+    ) else '未通过'
+
+
+def _check_lldp(fileTxt, checkItems):
+    """检查 LLDP 使能配置"""
+    return '通过' if genCheckOtion(
+        r'#\s*\n\s*lldp enable\s*\n\s*#', fileTxt
+    ) else '未通过'
+
+
+def _check_ssh(fileTxt, checkItems):
+    """检查 SSH 服务端/客户端加密配置"""
+    if genCheckOtion(
+        r'stelnet server enable\s*\n\s*'
+        r'ssh server rsa-key min-length 3072\s*\n\s*'
+        r'ssh server-source all-interface\s*\n\s*'
+        r'undo ssh ipv6 server-source all-interface\s*\n\s*'
+        r'ssh authorization-type default aaa\s*\n\s*'
+        r'#\s*\n\s*'
+        r'ssh server cipher aes256_gcm aes128_gcm aes256_ctr aes192_ctr aes128_ctr '
+        r'aes256_cbc aes192_cbc aes128_cbc arcfour256 arcfour128 3des_cbc blowfish_cbc des_cbc\s*\n\s*'
+        r'ssh server hmac sha2_512 sha2_256_96 sha2_256 sha1 sha1_96 md5 md5_96\s*\n\s*'
+        r'ssh server key-exchange dh_group_exchange_sha256 dh_group_exchange_sha1 '
+        r'dh_group14_sha1 dh_group1_sha1 ecdh_sha2_nistp256 ecdh_sha2_nistp384 '
+        r'ecdh_sha2_nistp521 sm2_kep dh_group16_sha512 curve25519_sha256\s*\n\s*'
+        r'#\s*\n\s*'
+        r'ssh server publickey dsa ecc rsa rsa_sha2_256 rsa_sha2_512\s*\n\s*'
+        r'#\s*\n\s*'
+        r'ssh server dh-exchange min-len 2048\s*\n\s*'
+        r'#\s*\n\s*'
+        r'ssh client publickey ecc rsa_sha2_256 rsa_sha2_512\s*\n\s*'
+        r'#\s*\n\s*'
+        r'ssh client cipher aes256_gcm aes128_gcm aes256_ctr aes192_ctr aes128_ctr\s*\n\s*'
+        r'ssh client hmac sha2_512 sha2_256\s*\n\s*'
+        r'ssh client key-exchange dh_group_exchange_sha256 dh_group16_sha512',
+        fileTxt
+    ) or genCheckOtion(
+        r'stelnet server enable\s*\n\s*'
+        r'ssh server rsa-key min-length 3072\s*\n\s*'
+        r'undo ssh server authentication-type keyboard-interactive enable\s*\n\s*'
+        r'ssh server-source all-interface\s*\n\s*'
+        r'undo ssh ipv6 server-source all-interface\s*\n\s*'
+        r'ssh authorization-type default aaa\s*\n\s*'
+        r'#\s*\n\s*'
+        r'ssh server cipher aes256_gcm aes128_gcm aes256_ctr aes192_ctr aes128_ctr '
+        r'aes256_cbc aes128_cbc 3des_cbc\s*\n\s*'
+        r'ssh server hmac sha2_512 sha2_256_96 sha2_256 sha1 sha1_96 md5 md5_96\s*\n\s*'
+        r'ssh server key-exchange dh_group_exchange_sha256 dh_group_exchange_sha1 '
+        r'dh_group14_sha1 dh_group1_sha1 ecdh_sha2_nistp256 ecdh_sha2_nistp384 '
+        r'ecdh_sha2_nistp521 sm2_kep dh_group16_sha512\s*\n\s*'
+        r'#\s*\n\s*'
+        r'ssh server publickey dsa ecc rsa rsa_sha2_256 rsa_sha2_512\s*\n\s*'
+        r'#\s*\n\s*'
+        r'ssh server dh-exchange min-len 2048\s*\n\s*'
+        r'#\s*\n\s*'
+        r'ssh client publickey ecc rsa_sha2_256 rsa_sha2_512\s*\n\s*'
+        r'#\s*\n\s*'
+        r'ssh client cipher aes256_gcm aes128_gcm aes256_ctr aes192_ctr aes128_ctr\s*\n\s*'
+        r'ssh client hmac sha2_512 sha2_256\s*\n\s*'
+        r'ssh client key-exchange dh_group_exchange_sha256 dh_group16_sha512\s*\n\s*',
+        fileTxt
+    ):
+        return '通过'
+    return '未通过'
+
+
+def _check_cmd_privilege(fileTxt, checkItems):
+    """检查命令权限配置"""
+    return '通过' if genCheckOtion(
+        r'command-privilege level 1 view shell dir\s*\n\s*'
+        r'command-privilege level 1 view global display\s*\n\s*'
+        r'command-privilege level 1 view shell save\s*\n\s*'
+        r'command-privilege level 1 view shell screen-length',
+        fileTxt
+    ) else '未通过'
+
+
+def _check_user_interface(fileTxt, checkItems):
+    """检查 VTY / CON 口登录配置"""
+    return '通过' if genCheckOtion(
+        r'user-interface maximum-vty 21\s*\n\s*'
+        r'#\s*\n\s*'
+        r'user-interface con 0\s*\n\s*'
+        r'authentication-mode password\s*\n\s*'
+        r'set authentication password cipher \S+\s*\n\s*'
+        r'idle-timeout 10 0\s*\n\s*'
+        r'#\s*\n\s*'
+        r'user-interface vty 0 20\s*\n\s*'
+        r'authentication-mode aaa\s*\n\s*'
+        r'user privilege level 3\s*\n\s*'
+        r'protocol inbound ssh',
+        fileTxt
+    ) else '未通过'
+
+
+def _check_hash(fileTxt, checkItems):
+    """检查负载均衡 ECMP hash 模式"""
+    return '通过' if genCheckOtion(
+        r'#\s*\n\s*'
+        r'load-balance ecmp\s*\n\s*'
+        r'hashmode (underlay)? 2\s*\n\s*'
+        r'#', fileTxt
+    ) else '未通过'
+
+
+def _check_oob_interface(fileTxt, checkItems):
+    """检查带外接口（MEth）配置"""
+    return '通过' if genCheckOtion(
+        r'interface MEth\S+\s*\n\s*'
+        r'description Out-Of-OOB\s*\n\s*'
+        r'ip binding vpn-instance OOB\s*\n\s*'
+        r'ip address \d+\.\d+\.\d+\.\d+ 255.255.255.0',
+        fileTxt
+    ) else '未通过'
+
+
+def _check_loopback(fileTxt, checkItems):
+    """检查 LoopBack1 接口配置"""
+    return '通过' if genCheckOtion(
+        r'interface LoopBack1\s*\n\s*'
+        r'description \S+\s*\n\s*'
+        r'(?:ip binding vpn-instance\s+\S+\s*\n\s*)?'
+        r'ip address \d+\.\d+\.\d+\.\d+ 255.255.255.255',
+        fileTxt
+    ) else '未通过'
+
+
+def _check_peerlink(fileTxt, checkItems):
+    """检查 peer-link (Eth-Trunk100) 配置"""
+    matchPeerlinkEth = re.search(
+        r'interface Eth-Trunk100\s*\n\s*'
+        r'description To_\S+_Eth-Trunk100\s*\n\s*'
+        r'mode lacp-static\s*\n\s*'
+        r'peer-link 1',
+        fileTxt, re.IGNORECASE
+    )
+    matchPeerlinkPort = re.findall(
+        r'interface 100GE1/0/[37]\s*\n\s*'
+        r'description To_\S+_100GE1/0/[37]\s*\n\s*'
+        r'eth-trunk 100',
+        fileTxt, re.IGNORECASE
+    )
+    matchPeerlinkPortSlf = re.findall(
+        r'interface 25GE1/0/\d{2}\s*\n\s*'
+        r'description To_\S+_25GE1/0/\d{2}\s*\n\s*'
+        r'eth-trunk 100',
+        fileTxt, re.IGNORECASE
+    )
+    if checkItems['type'] in ['Slf']:
+        return '通过' if (matchPeerlinkEth and len(matchPeerlinkPortSlf) == 8) else '未通过'
+    else:
+        return '通过' if (matchPeerlinkEth and len(matchPeerlinkPort) == 2) else '未通过'
+
+
+def _check_dad(fileTxt, checkItems):
+    """检查 DAD 检测链路 (Eth-Trunk101) 配置"""
+    matchDadEth = re.search(
+        r'interface Eth-Trunk101\s*\n\s*'
+        r'undo portswitch\s*\n\s*'
+        r'description To_\S+_Eth-Trunk101\s*\n\s*'
+        r'ip binding vpn-instance DAD\s*\n\s*'
+        r'ip address \d+\.\d+\.\d+\.\d+ 255.255.255.252\s*\n\s*'
+        r'mode lacp-static\s*\n\s*'
+        r'm-lag unpaired-port reserved',
+        fileTxt, re.IGNORECASE
+    )
+    matchDadPort = re.findall(
+        r'interface 25GE1/0/4[678]\s*\n\s*'
+        r'description To_\S+_25GE1/0/4[678]\s*\n\s*'
+        r'eth-trunk 101',
+        fileTxt, re.IGNORECASE
+    )
+    return '通过' if (matchDadEth and len(matchDadPort) == 2) else '未通过'
+
+
+def _check_monitor_link(fileTxt, checkItems):
+    """检查 monitor-link 联动组配置（Leaf / Slf 不同模板）"""
+    matchMonitorLinkInfo = genCheckOtion(
+        r'monitor-link group 1\s*\n\s*'
+        r'port 100GE1/0/1 uplink\s*\n\s*'
+        r'port 100GE1/0/2 uplink\s*\n\s*'
+        r'port 100GE1/0/5 uplink\s*\n\s*'
+        r'port 100GE1/0/6 uplink\s*\n\s*'
+        r'port 25GE1/0/1 downlink 1\s*\n\s*'
+        r'port 25GE1/0/2 downlink 2\s*\n\s*'
+        r'port 25GE1/0/3 downlink 3\s*\n\s*'
+        r'port 25GE1/0/4 downlink 4\s*\n\s*'
+        r'port 25GE1/0/5 downlink 5\s*\n\s*'
+        r'port 25GE1/0/6 downlink 6\s*\n\s*'
+        r'port 25GE1/0/7 downlink 7\s*\n\s*'
+        r'port 25GE1/0/8 downlink 8\s*\n\s*'
+        r'port 25GE1/0/9 downlink 9\s*\n\s*'
+        r'port 25GE1/0/10 downlink 10\s*\n\s*'
+        r'port 25GE1/0/11 downlink 11\s*\n\s*'
+        r'port 25GE1/0/12 downlink 12\s*\n\s*'
+        r'port 25GE1/0/13 downlink 13\s*\n\s*'
+        r'port 25GE1/0/14 downlink 14\s*\n\s*'
+        r'port 25GE1/0/15 downlink 15\s*\n\s*'
+        r'port 25GE1/0/16 downlink 16\s*\n\s*'
+        r'port 25GE1/0/17 downlink 17\s*\n\s*'
+        r'port 25GE1/0/18 downlink 18\s*\n\s*'
+        r'port 25GE1/0/19 downlink 19\s*\n\s*'
+        r'port 25GE1/0/20 downlink 20\s*\n\s*'
+        r'port 25GE1/0/21 downlink 21\s*\n\s*'
+        r'port 25GE1/0/22 downlink 22\s*\n\s*'
+        r'port 25GE1/0/23 downlink 23\s*\n\s*'
+        r'port 25GE1/0/24 downlink 24\s*\n\s*'
+        r'port 25GE1/0/25 downlink 25\s*\n\s*'
+        r'port 25GE1/0/26 downlink 26\s*\n\s*'
+        r'port 25GE1/0/27 downlink 27\s*\n\s*'
+        r'port 25GE1/0/28 downlink 28\s*\n\s*'
+        r'port 25GE1/0/29 downlink 29\s*\n\s*'
+        r'port 25GE1/0/30 downlink 30\s*\n\s*'
+        r'port 25GE1/0/31 downlink 31\s*\n\s*'
+        r'port 25GE1/0/32 downlink 32\s*\n\s*'
+        r'port 25GE1/0/33 downlink 33\s*\n\s*'
+        r'port 25GE1/0/34 downlink 34\s*\n\s*'
+        r'port 25GE1/0/35 downlink 35\s*\n\s*'
+        r'port 25GE1/0/36 downlink 36\s*\n\s*'
+        r'port 25GE1/0/37 downlink 37\s*\n\s*'
+        r'port 25GE1/0/38 downlink 38\s*\n\s*'
+        r'port 25GE1/0/39 downlink 39\s*\n\s*'
+        r'port 25GE1/0/40 downlink 40\s*\n\s*'
+        r'port 25GE1/0/41 downlink 41\s*\n\s*'
+        r'port 25GE1/0/42 downlink 42\s*\n\s*'
+        r'port 25GE1/0/43 downlink 43\s*\n\s*'
+        r'port 25GE1/0/44 downlink 44\s*\n\s*'
+        r'port 25GE1/0/45 downlink 45\s*\n\s*'
+        r'port 25GE1/0/4[68] downlink 4[68]\s*\n\s*'
+        r'timer recover-time 40',
+        fileTxt
+    )
+    matchMonitorLinkSlfInfo = genCheckOtion(
+        r'monitor-link group 1\s*\n\s*'
+        r'port 100GE1/0/1 uplink\s*\n\s*'
+        r'port 100GE1/0/2 uplink\s*\n\s*'
+        r'port 100GE1/0/5 uplink\s*\n\s*'
+        r'port 100GE1/0/6 uplink\s*\n\s*'
+        r'port 25GE1/0/1 downlink 1\s*\n\s*'
+        r'port 25GE1/0/2 downlink 2\s*\n\s*'
+        r'port 25GE1/0/3 downlink 3\s*\n\s*'
+        r'port 25GE1/0/4 downlink 4\s*\n\s*'
+        r'port 25GE1/0/5 downlink 5\s*\n\s*'
+        r'port 25GE1/0/6 downlink 6\s*\n\s*'
+        r'port 25GE1/0/7 downlink 7\s*\n\s*'
+        r'port 25GE1/0/8 downlink 8\s*\n\s*'
+        r'port 25GE1/0/9 downlink 9\s*\n\s*'
+        r'port 25GE1/0/10 downlink 10\s*\n\s*'
+        r'port 25GE1/0/11 downlink 11\s*\n\s*'
+        r'port 25GE1/0/12 downlink 12\s*\n\s*'
+        r'port 25GE1/0/13 downlink 13\s*\n\s*'
+        r'port 25GE1/0/14 downlink 14\s*\n\s*'
+        r'port 25GE1/0/15 downlink 15\s*\n\s*'
+        r'port 25GE1/0/16 downlink 16\s*\n\s*'
+        r'port 25GE1/0/17 downlink 17\s*\n\s*'
+        r'port 25GE1/0/18 downlink 18\s*\n\s*'
+        r'port 25GE1/0/19 downlink 19\s*\n\s*'
+        r'port 25GE1/0/20 downlink 20\s*\n\s*'
+        r'port 25GE1/0/21 downlink 21\s*\n\s*'
+        r'port 25GE1/0/22 downlink 22\s*\n\s*'
+        r'port 25GE1/0/23 downlink 23\s*\n\s*'
+        r'port 25GE1/0/24 downlink 24\s*\n\s*'
+        r'port 25GE1/0/25 downlink 25\s*\n\s*'
+        r'port 25GE1/0/26 downlink 26\s*\n\s*'
+        r'port 25GE1/0/27 downlink 27\s*\n\s*'
+        r'port 25GE1/0/28 downlink 28\s*\n\s*'
+        r'port 25GE1/0/29 downlink 29\s*\n\s*'
+        r'port 25GE1/0/30 downlink 30\s*\n\s*'
+        r'port 25GE1/0/31 downlink 31\s*\n\s*'
+        r'port 25GE1/0/32 downlink 32\s*\n\s*'
+        r'port 25GE1/0/33 downlink 33\s*\n\s*'
+        r'port 25GE1/0/34 downlink 34\s*\n\s*'
+        r'port 25GE1/0/35 downlink 35\s*\n\s*'
+        r'port 25GE1/0/36 downlink 36\s*\n\s*'
+        r'port 25GE1/0/37 downlink 37\s*\n\s*'
+        r'port 100GE1/0/3 downlink 103\s*\n\s*'
+        r'port 100GE1/0/7 downlink 107\s*\n\s*'
+        r'timer recover-time 40',
+        fileTxt
+    )
+    if checkItems['type'] in ['Slf']:
+        return '通过' if matchMonitorLinkSlfInfo else '未通过'
+    else:
+        return '通过' if matchMonitorLinkInfo else '未通过'
+
+
+# ============================================================
+# 检查项分发表：检查项名称 -> 对应函数
+# ============================================================
+_CHECKERS = {
+    '版本':                _check_version,
+    '补丁':                _check_patch,
+    '多余文件检查':         _check_extra_files,
+    '硬件状态检查':         _check_hardware,
+    '未关闭端口':           _check_open_ports,
+    'bgp邻居状态':          _check_bgp_neighbor,
+    'feature-software状态': _check_feature_software,
+    '失败命令配置检查':      _check_failed_commands,
+    '设备Esn':             _check_esn,
+    '关闭FTP配置':          _check_ftp_disabled,
+    'mlag状态':            _check_mlag_status,
+    'mlag配置':            _check_mlag_config,
+    '大路由配置':           _check_large_route,
+    'NTP配置':             _check_ntp,
+    '全局vlan配置':         _check_vlan_global,
+    'mac飘移配置':         _check_mac_flapping,
+    'STP配置':             _check_stp,
+    'arp冲突配置':         _check_arp_conflict,
+    'telnet关闭配置':       _check_telnet_disabled,
+    'vpn实例配置':          _check_vpn_instance,
+    'aaa配置':             _check_aaa,
+    'BGP配置':             _check_bgp,
+    'snmp配置':            _check_snmp,
+    'LLDP配置':            _check_lldp,
+    'ssh配置':             _check_ssh,
+    'cmd权限配置':          _check_cmd_privilege,
+    'user-interface配置':  _check_user_interface,
+    'hash配置':            _check_hash,
+    '带外接口配置':         _check_oob_interface,
+    'loopback配置':        _check_loopback,
+    'peerlink配置':        _check_peerlink,
+    'DAD配置':             _check_dad,
+    'monitor-link配置':    _check_monitor_link,
+}
+
+
 def genCheckOtion(reinfo, fileTxt):
+    """
+    通用正则匹配检查工具。
+    在配置文本中搜索给定正则模式，匹配即返回 match 对象，否则返回 None。
+    """
     return re.search(r'%s' % reinfo, fileTxt, re.IGNORECASE)
 
 
