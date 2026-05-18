@@ -174,7 +174,7 @@ def start_action():  # windows功能入口
             data = funcAction(username, password, fileName, savename, deviceCheck, worker)
             writeToExcel(savename, title, data)
             break
-        if functionSelect == '2':  # 配置比对
+        if functionSelect == '2':  # 配置检查+状态采集
             from config.check_items import CHECK_ITEM_NAMES
             title = (['设备名', '设备类型', 'sysname', '管理IP', '型号']
                      + list(CHECK_ITEM_NAMES))  # 从配置表动态生成列头

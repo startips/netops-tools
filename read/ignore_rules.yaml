@@ -1,0 +1,165 @@
+# ============================================================
+# ignore_rules.yaml - 配置比对过滤规则
+#
+# 所有过滤/忽略规则统一在这里配置，代码不保留硬编码列表。
+# 三个分类：
+#
+#   noise — 噪音行（不参与任何比对，两边都过滤）
+#     → 设备自动生成的、不是"配上去的配置"的内容
+#     → 两端都过滤：cfg 有 log 没有 不报"缺失"，反之亦然
+#
+#   ignore_missing — .cfg 里有但 .log 里没有时，不报"缺失"
+#     → 用于"配了但不回显"的命令
+#
+#   ignore_extra — .log 里有但 .cfg 里没有时，不报"多余"
+#     → 用于设备自动生成、不影响功能的配置
+#
+# 每条规则格式（两种）：
+#  1. 简单字符串：对所有设备生效
+#     - "undo private-4-byte-as enable"
+#
+#  2. 字典：按设备型号/版本差异化过滤
+#     - pattern: "lldp enable"
+#       models: ["S5731"]           # 仅这些型号生效
+#       versions: ["V200R024.*"]    # 仅这些版本生效（正则）
+#
+# models/versions 可选，不指定时对所有设备生效。
+# 多个条件同时指定时为"与"关系。
+# 匹配使用 re.search()，支持部分匹配和正则。
+# ============================================================
+
+# ============================================================
+# noise — 噪音行
+# 这些行是设备自动生成的配置内容，不是人工配上去的，
+# 不存在"配了没配"的问题，直接不参与比对。
+# 如果某条规则你不想用，行首加 # 注释掉即可。
+# ============================================================
+noise:
+  # --- 注释行 ---
+  - "^!\\s*Software Version"
+  - "^!\\s*Last configuration"
+  - "^!\\s*Last (configuration|change)"
+
+  # --- 硬件自动检测（设备上报的物理信息，不是配置） ---
+  - "^device\\s+(board|card|transceiver|fan|power)\\s+"
+
+  # --- SNMP 自动生成的 engine-id ---
+  - "^snmp-agent local-engineid\\s+"
+
+  # --- WLAN 自动配置（AP 能力交换机自动生成，不是人工配的） ---
+  - "^wlan\\s+"
+  - "^traffic-profile\\s+"
+  - "^security-profile\\s+"
+  - "^ssid-profile\\s+"
+  - "^vap-profile\\s+"
+  - "^ap-group\\s+"
+  - "^ap-id\\s+"
+  - "^wids\\s+"
+  - "^undo wids\\s+"
+  - "^capwap\\s+"
+  - "^undo capwap\\s+"
+  - "^radio-profile\\s+"
+  - "^radio\\s+\\d+"
+  - "^undo radio\\s+\\d+"
+  - "^:.+$"
+  - "^radio-2g-profile\\s+"
+  - "^radio-5g-profile\\s+"
+  - "^wids-spoof-profile\\s+"
+  - "^wids-whitelist-profile\\s+"
+  - "^wids-profile\\s+"
+  - "^ap-system-profile\\s+"
+
+  # --- 设备默认生成的空模板/段 ---
+  - "^license\\s*$"
+  - "^license\\s+"
+  - "^easy-operation\\s+"
+  - "^remote-unit\\s*$"
+  - "^ops\\s*$"
+  - "^drop-profile\\s+"
+  - "^diffserv domain\\s+"
+  - "^pki realm\\s+"
+  - "^radius-server template\\s+"
+
+  # --- 旧版本默认配置（无实际影响） ---
+  - "^undo telnet server\\s+"
+  - "^undo telnet ipv6 server\\s+"
+  - "^http server-source\\s+"
+  - "^undo authentication unified-mode"
+  - "^undo management-port isolate"
+  - "^undo management-plane isolate"
+  - "^loopback-detect auto disable"
+
+  # --- 端口本地默认行为 ---
+  - "^shutdown$"
+  # --- 配置段结束标识 ---
+  - "^return$"
+
+# ============================================================
+# ignore_missing — 配了但不回显的命令
+# 以下命令写在 .cfg 里，但 display current-configuration 不会回显。
+# 这些不是局点没刷，是华为 VRP 的特性。
+# ============================================================
+ignore_missing:
+  # BGP / 路由
+  - "undo private-4-byte-as enable"
+  - "undo ecmp local-preference disable"
+  - "undo route low-priority enable"
+
+  # NTP
+  - "ntp server disable"
+  - "ntp ipv6 server disable"
+
+  # STP / LLDP（部分型号默认启用时不回显）
+  # 新格式示例：仅 S5731 且 V200R024 系列才忽略
+  # - pattern: "stp enable"
+  #   models: ["S5731"]
+  #   versions: ["V200R024.*"]
+  - "stp enable"
+  - "lldp enable"
+
+  # PKI（证书相关配置不回显）
+  - "^pki "
+
+  # 命令等级授权（部分 VRP 版本不回显 command-privilege）
+  - "command-privilege level"
+
+  # 系统资源模式
+  - "system resource standard"
+
+  # 管理口隔离
+  - "management-port isolate enable"
+  - "management-plane isolate enable"
+
+  # 端口安全
+  - "dragonfly profile default"
+
+  # 部分型号的 MAC 地址表默认设置
+  - "mac-address learning self-healing enable"
+
+# ============================================================
+# ignore_extra — 设备自动生成的多余配置
+# 以下配置在 .log 里有，但 .cfg 里没有，不需要报"多余"
+# ============================================================
+ignore_extra:
+  # SNMP community 自动添加的 alias 后缀（格式：__CommunityAliasName_01_XXXXX）
+  - "CommunityAliasName"
+
+  # WLAN 自动配置
+  - "^capwap "
+  - "^wids-"
+  - "^ap-"
+  - "^traffic-profile "
+  - "^security-profile "
+  - "^ssid-profile "
+  - "^vap-profile "
+  - "^ap-group "
+  - "^ap-id "
+  - "^radio-"
+  - "^wlan "
+
+  # 管理 VPN（设备自动创建）
+  - "_management_vpn_"
+
+  # CPU 保护（新版 VRP 默认启用）
+  - "cpu-defend host-car"
+  - "cpu-defend policy"
