@@ -251,29 +251,46 @@ def _check_patch(fileTxt, checkItems):
 
 
 def _check_extra_files(fileTxt, checkItems):
-    """检查 flash 中多余文件（.cc .pat .cfg）"""
+    """
+    检查 flash 中多余文件（.cc .pat .cfg）。
+
+    在 flash 目录列表中统计各系统文件类型的数量，
+    用循环遍历后缀名列表，避免三段重复的 findall 代码。
+    判断标准：
+        - .cc（版本文件）：应恰好 1 个
+        - .pat（补丁文件）：应恰好 1 个
+        - .cfg（配置文件）：应 ≤ 1 个
+
+    参数：
+        fileTxt:     配置文件完整文本
+        checkItems:  设备信息（保留参数，暂未使用）
+
+    返回：
+        '通过'        — 文件数量符合预期
+        '未匹配到'    — 找不到 flash 目录信息或三项均为 0
+        str           — 各类型文件的实际数量（如 'cc:2,pat:1,cfg:1'）
+    """
     matchDirInfo = re.search(r'Directory of flash[\s\S]*?<', fileTxt, re.IGNORECASE)
     if not matchDirInfo:
         return '未匹配到'
     dirInfo = matchDirInfo.group()
-    verCount = len(re.findall(
-        r'\d+\s+\S+\s+\S+\s+\S+\s\d+\s\d+\s\d+\:\d+\:\d+\s+\S+\.cc',
-        dirInfo, re.IGNORECASE
-    ))
-    patCount = len(re.findall(
-        r'\d+\s+\S+\s+\S+\s+\S+\s\d+\s\d+\s\d+\:\d+\:\d+\s+\S+\.pat',
-        dirInfo, re.IGNORECASE
-    ))
-    cfgCount = len(re.findall(
-        r'\d+\s+\S+\s+\S+\s+\S+\s\d+\s\d+\s\d+\:\d+\:\d+\s+\S+\.cfg',
-        dirInfo, re.IGNORECASE
-    ))
-    if verCount == 1 and patCount == 1 and cfgCount <= 1:
+
+    # 参数化：对每个文件后缀类型执行相同的 findall，代码量缩减 2/3
+    # 原始正则除后缀名外完全一致，用循环 + f-string 动态替换后缀
+    extensions = ['cc', 'pat', 'cfg']
+    counts = {}
+    for ext in extensions:
+        counts[ext] = len(re.findall(
+            rf'\d+\s+\S+\s+\S+\s+\S+\s\d+\s\d+\s\d+\:\d+\:\d+\s+\S+\.{ext}',
+            dirInfo, re.IGNORECASE
+        ))
+
+    if counts['cc'] == 1 and counts['pat'] == 1 and counts['cfg'] <= 1:
         return '通过'
-    elif verCount == 0 and patCount == 0 and cfgCount == 0:
+    elif all(v == 0 for v in counts.values()):
         return '未匹配到'
     else:
-        return 'cc:%d,pat:%d,cfg:%d' % (verCount, patCount, cfgCount)
+        return 'cc:%d,pat:%d,cfg:%d' % (counts['cc'], counts['pat'], counts['cfg'])
 
 
 def _check_hardware(fileTxt, checkItems):
@@ -344,7 +361,7 @@ def _check_esn(fileTxt, checkItems):
 
 def _check_ftp_disabled(fileTxt, checkItems):
     """检查是否关闭 FTP 服务"""
-    return '通过' if genCheckOtion(
+    return '通过' if genCheckOption(
         r'undo ftp server source all-interface\s*\n\s*'
         r'undo ftp ipv6 server source all-interface',
         fileTxt
@@ -353,7 +370,7 @@ def _check_ftp_disabled(fileTxt, checkItems):
 
 def _check_mlag_status(fileTxt, checkItems):
     """检查 M-LAG 心跳/主备状态"""
-    return '通过' if genCheckOtion(
+    return '通过' if genCheckOption(
         r'Heart beat state\s+\:\s+OK\s*\n\s*'
         r'Node [12][\s\S]*?State\s+\:\s+(:?Backup|Master)[\s\S]*?'
         r'Node [12][\s\S]*?State\s+\:\s+(:?Backup|Master)',
@@ -363,7 +380,7 @@ def _check_mlag_status(fileTxt, checkItems):
 
 def _check_mlag_config(fileTxt, checkItems):
     """检查 dfs-group / M-LAG 配置"""
-    return '通过' if genCheckOtion(
+    return '通过' if genCheckOption(
         r'#\s*\n\s*'
         r'dfs-group 1\s*\n\s*'
         r'authentication-mode hmac-sha256 password \S+\s*\n\s*'
@@ -377,21 +394,21 @@ def _check_mlag_config(fileTxt, checkItems):
 
 def _check_large_route(fileTxt, checkItems):
     """检查大路由配置（system resource large-route）"""
-    if genCheckOtion(
+    if genCheckOption(
         r'#\s*\n\s*system resource large-route\s*\n\s*#',
         fileTxt
     ):
         return '通过'
     # 排除 CE6866 和 k8s vlanif
-    if (genCheckOtion(r'HUAWEI CE6866\S+ uptime is', fileTxt) or
-            genCheckOtion(r'interface Vlanif\d+\s*\n\s*description\s+.*?k8s', fileTxt)):
+    if (genCheckOption(r'HUAWEI CE6866\S+ uptime is', fileTxt) or
+            genCheckOption(r'interface Vlanif\d+\s*\n\s*description\s+.*?k8s', fileTxt)):
         return '不涉及'
     return '未通过'
 
 
 def _check_ntp(fileTxt, checkItems):
     """检查 NTP 源接口关闭配置"""
-    return '通过' if genCheckOtion(
+    return '通过' if genCheckOption(
         r'ntp server source-interface all disable\s*\n\s*'
         r'ntp ipv6 server source-interface all disable',
         fileTxt
@@ -406,7 +423,7 @@ def _check_vlan_global(fileTxt, checkItems):
 
 def _check_mac_flapping(fileTxt, checkItems):
     """检查 MAC 飘移检测配置"""
-    return '通过' if genCheckOtion(
+    return '通过' if genCheckOption(
         r'mac-address flapping detection security-level low\s*\n\s*'
         r'mac-address flapping periodical trap enable',
         fileTxt
@@ -415,7 +432,7 @@ def _check_mac_flapping(fileTxt, checkItems):
 
 def _check_stp(fileTxt, checkItems):
     """检查 STP/RSTP 基础配置"""
-    return '通过' if genCheckOtion(
+    return '通过' if genCheckOption(
         r'stp bridge-address \d{4}-\d{4}-\d{4}\s*\n\s*'
         r'stp mode rstp\s*\n\s*'
         r'stp v-stp enable\s*\n\s*'
@@ -428,7 +445,7 @@ def _check_stp(fileTxt, checkItems):
 
 def _check_arp_conflict(fileTxt, checkItems):
     """检查 ARP 冲突检测配置"""
-    return '通过' if genCheckOtion(
+    return '通过' if genCheckOption(
         r'#\s*\n\s*arp ip-conflict-detect enable\s*\n\s*#',
         fileTxt
     ) else '未通过'
@@ -436,7 +453,7 @@ def _check_arp_conflict(fileTxt, checkItems):
 
 def _check_telnet_disabled(fileTxt, checkItems):
     """检查是否关闭 Telnet 服务"""
-    return '通过' if genCheckOtion(
+    return '通过' if genCheckOption(
         r'telnet server disable\s*\n\s*'
         r'telnet ipv6 server disable\s*\n\s*'
         r'undo telnet server-source all-interface\s*\n\s*'
@@ -470,7 +487,7 @@ def _check_vpn_instance(fileTxt, checkItems):
 
 def _check_aaa(fileTxt, checkItems):
     """检查 AAA 认证配置"""
-    return '通过' if genCheckOtion(
+    return '通过' if genCheckOption(
         r'aaa\s*\n\s*'
         r'authentication-scheme default\s*\n\s*'
         r'authentication-mode local\s*\n\s*'
@@ -612,7 +629,7 @@ def _check_bgp(fileTxt, checkItems):
 
 def _check_snmp(fileTxt, checkItems):
     """检查 SNMP Agent 配置"""
-    return '通过' if genCheckOtion(
+    return '通过' if genCheckOption(
         r'snmp-agent\s*\n\s*'
         r'snmp-agent local-engineid \S+\s*\n\s*'
         r'snmp-agent community read cipher.*?mib-view iso-view.*?\s*\n\s*'
@@ -637,14 +654,14 @@ def _check_snmp(fileTxt, checkItems):
 
 def _check_lldp(fileTxt, checkItems):
     """检查 LLDP 使能配置"""
-    return '通过' if genCheckOtion(
+    return '通过' if genCheckOption(
         r'#\s*\n\s*lldp enable\s*\n\s*#', fileTxt
     ) else '未通过'
 
 
 def _check_ssh(fileTxt, checkItems):
     """检查 SSH 服务端/客户端加密配置"""
-    if genCheckOtion(
+    if genCheckOption(
         r'stelnet server enable\s*\n\s*'
         r'ssh server rsa-key min-length 3072\s*\n\s*'
         r'ssh server-source all-interface\s*\n\s*'
@@ -668,7 +685,7 @@ def _check_ssh(fileTxt, checkItems):
         r'ssh client hmac sha2_512 sha2_256\s*\n\s*'
         r'ssh client key-exchange dh_group_exchange_sha256 dh_group16_sha512',
         fileTxt
-    ) or genCheckOtion(
+    ) or genCheckOption(
         r'stelnet server enable\s*\n\s*'
         r'ssh server rsa-key min-length 3072\s*\n\s*'
         r'undo ssh server authentication-type keyboard-interactive enable\s*\n\s*'
@@ -700,7 +717,7 @@ def _check_ssh(fileTxt, checkItems):
 
 def _check_cmd_privilege(fileTxt, checkItems):
     """检查命令权限配置"""
-    return '通过' if genCheckOtion(
+    return '通过' if genCheckOption(
         r'command-privilege level 1 view shell dir\s*\n\s*'
         r'command-privilege level 1 view global display\s*\n\s*'
         r'command-privilege level 1 view shell save\s*\n\s*'
@@ -711,7 +728,7 @@ def _check_cmd_privilege(fileTxt, checkItems):
 
 def _check_user_interface(fileTxt, checkItems):
     """检查 VTY / CON 口登录配置"""
-    return '通过' if genCheckOtion(
+    return '通过' if genCheckOption(
         r'user-interface maximum-vty 21\s*\n\s*'
         r'#\s*\n\s*'
         r'user-interface con 0\s*\n\s*'
@@ -729,7 +746,7 @@ def _check_user_interface(fileTxt, checkItems):
 
 def _check_hash(fileTxt, checkItems):
     """检查负载均衡 ECMP hash 模式"""
-    return '通过' if genCheckOtion(
+    return '通过' if genCheckOption(
         r'#\s*\n\s*'
         r'load-balance ecmp\s*\n\s*'
         r'hashmode (underlay)? 2\s*\n\s*'
@@ -739,7 +756,7 @@ def _check_hash(fileTxt, checkItems):
 
 def _check_oob_interface(fileTxt, checkItems):
     """检查带外接口（MEth）配置"""
-    return '通过' if genCheckOtion(
+    return '通过' if genCheckOption(
         r'interface MEth\S+\s*\n\s*'
         r'description Out-Of-OOB\s*\n\s*'
         r'ip binding vpn-instance OOB\s*\n\s*'
@@ -750,7 +767,7 @@ def _check_oob_interface(fileTxt, checkItems):
 
 def _check_loopback(fileTxt, checkItems):
     """检查 LoopBack1 接口配置"""
-    return '通过' if genCheckOtion(
+    return '通过' if genCheckOption(
         r'interface LoopBack1\s*\n\s*'
         r'description \S+\s*\n\s*'
         r'(?:ip binding vpn-instance\s+\S+\s*\n\s*)?'
@@ -809,7 +826,7 @@ def _check_dad(fileTxt, checkItems):
 
 def _check_monitor_link(fileTxt, checkItems):
     """检查 monitor-link 联动组配置（Leaf / Slf 不同模板）"""
-    matchMonitorLinkInfo = genCheckOtion(
+    matchMonitorLinkInfo = genCheckOption(
         r'monitor-link group 1\s*\n\s*'
         r'port 100GE1/0/1 uplink\s*\n\s*'
         r'port 100GE1/0/2 uplink\s*\n\s*'
@@ -864,7 +881,7 @@ def _check_monitor_link(fileTxt, checkItems):
         r'timer recover-time 40',
         fileTxt
     )
-    matchMonitorLinkSlfInfo = genCheckOtion(
+    matchMonitorLinkSlfInfo = genCheckOption(
         r'monitor-link group 1\s*\n\s*'
         r'port 100GE1/0/1 uplink\s*\n\s*'
         r'port 100GE1/0/2 uplink\s*\n\s*'
@@ -1006,12 +1023,26 @@ _CHECKERS = {
 }
 
 
-def genCheckOtion(reinfo, fileTxt):
+def genCheckOption(pattern, fileTxt):
     """
     通用正则匹配检查工具。
+
     在配置文本中搜索给定正则模式，匹配即返回 match 对象，否则返回 None。
+    本函数作为各 _check_xxx 函数的底层工具，统一大小写不敏感的匹配行为。
+
+    参数：
+        pattern:   正则表达式字符串（会被传入 re.search 的 r'' 原始字符串）
+        fileTxt:  配置文件的完整文本内容
+
+    返回：
+        re.Match or None — 匹配成功返回 match 对象，失败返回 None
+
+    注意：
+        - 默认启用 re.IGNORECASE
+        - pattern 中尽量不要用 ^ 或 $，因为 fileTxt 是整个文件全文，
+          建议用 #\\s*\\n 或 \\n\\s* 来控制位置
     """
-    return re.search(r'%s' % reinfo, fileTxt, re.IGNORECASE)
+    return re.search(r'%s' % pattern, fileTxt, re.IGNORECASE)
 
 
 if __name__ == '__main__':
