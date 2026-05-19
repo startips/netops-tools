@@ -89,7 +89,7 @@ def returntype(name):  # 确定设备类型以及检查项
     返回：
         dict，格式为 {'type': 'Spine', 'checkOption': {33个检查项的0/1字典}}
     """
-    from config.check_items import DEVICE_TYPE_CONFIGS, DEVICE_TYPE_PATTERNS
+    from interface import DEVICE_TYPE_CONFIGS, DEVICE_TYPE_PATTERNS
     for pattern, type_name in DEVICE_TYPE_PATTERNS:
         if re.search(pattern, name, flags=re.I):
             return {'type': type_name, 'checkOption': DEVICE_TYPE_CONFIGS[type_name].copy()}
@@ -174,7 +174,7 @@ def start_action():  # windows功能入口
             writeToExcel(savename, title, data)
             break
         if functionSelect == '2':  # 配置检查+状态采集
-            from config.check_items import CHECK_ITEM_NAMES
+            from interface import CHECK_ITEM_NAMES
             title = (['设备名', '设备类型', 'sysname', '管理IP', '型号']
                      + list(CHECK_ITEM_NAMES))  # 从配置表动态生成列头
             savename = 'compareResult'
