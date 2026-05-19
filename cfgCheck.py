@@ -509,7 +509,7 @@ def _check_aaa(fileTxt, checkItems):
         r'local-aaa-user user-name complexity-check disable\s*\n\s*'
         r'(?:local-user (?:admin|nmsuser) password irreversible-cipher \S+\s*\n\s*'
         r'local-user (?:admin|nmsuser) password-force-change disable\s*\n\s*'
-        r'local-user (?:admin|nmsuser) privilege level [13]\s*\n\s*'
+        r'local-user (?:admin|nmsuser) privilege level (?:1[5]?|3)\s*\n\s*'
         r'local-user (?:admin|nmsuser) service-type terminal ssh\s*\n\s*){2}',
         fileTxt
     ) else '未通过'
