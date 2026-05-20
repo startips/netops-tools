@@ -150,7 +150,8 @@ def start_action():  # windows功能入口
         '程序功能如下：\n'
         '1.登陆配置检查（根据keyWords.txt里的关键字）\n'
         '2.采集配置文件检查\n'
-        '3.下发配置')
+        '3.下发配置\n'
+        '4.配置下发验证比对（预期 vs 采集）')
     while True:
         if 'Linux' in platform.system():
             import sys
@@ -192,6 +193,15 @@ def start_action():  # windows功能入口
             username, password, worker = platform_select()
             data = funcAction(username, password, fileName, savename, deviceSend, worker)
             writeToExcel(savename, title, data)
+            break
+        if functionSelect == '4':
+            print('启动配置下发验证比对...\n'
+                  '  预期配置: read/config_intended/*.cfg\n'
+                  '  采集配置: read/config/*.log\n'
+                  '  规则文件: read/compare_rules.yaml\n'
+                  '  报告输出: data/compareResult_<时间戳>.md')
+            from compare_configs import main as compare_main
+            compare_main()
             break
         else:
             print('输入错误请重新输入')

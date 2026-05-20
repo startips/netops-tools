@@ -1,0 +1,112 @@
+#============================================================
+# 配置比对规则文件
+# 配合 compare_configs.py 使用
+# ============================================================
+# 型号/版本过滤说明：
+#   每条规则（noise / ignore_missing / ignore_extra 下的 global_lines 和
+#   block_lines 的每一项）支持可选的 model 和 version 字段：
+#
+#     - 不写 model / version：规则对所有设备生效（默认行为，向后兼容）
+#     - 只写 model：仅匹配该型号的设备（子串包含，如 model='CE6881'
+#       可匹配 'CE6881-48S6CQ-EI'）
+#     - 只写 version：仅匹配该版本的设备
+#     - 同时写 model 和 version：两者都满足（AND 关系）才生效
+#
+#   写法示例：
+#
+#     ignore_missing:
+#       global_lines:
+#         # 纯字符串 → 所有设备生效
+#         - '^pki import-data backup enable'
+#
+#         # 只对 CE6881 系列生效
+#         - pattern: '^some ce6881 only command'
+#           model: 'CE6881'
+#
+#         # 只对 V200R020 版本生效
+#         - pattern: '^version specific cmd'
+#           version: 'V200R020'
+#
+#         # 同时满足型号和版本（AND）才生效
+#         - pattern: '^very specific cmd'
+#           model: 'CE6881'
+#           version: 'V200R020C10'
+#
+#       block_lines:
+#         # block 级别同样支持 model/version
+#         - header_pattern: '^bgp '
+#           model: 'CE16816'
+#           lines:
+#             - 'undo private-4-byte-as enable'
+#
+#   noise.lines / noise.blocks 同样支持 model/version 过滤。
+#
+#
+# -----------------------------------------------------------
+# 段落拆分规则
+# 段落头匹配以下正则的，需要进一步按子命令拆分
+# 例如 interface 段按接口名拆分为多个子段
+# -----------------------------------------------------------
+split_sections:
+  - header_pattern: '^interface '
+  - header_pattern: '^bgp \d+'
+  - header_pattern: '^ip vpn-instance'
+  - header_pattern: '^user-interface '
+
+# -----------------------------------------------------------
+# 段落头 → 中文分类名映射
+# 只有以下 4 类单独展示，其余全部归入全局配置
+# -----------------------------------------------------------
+section_categories:
+  '^interface ': '端口配置'
+  '^bgp ': 'BGP配置'
+  '^ip vpn-instance': 'VPN实例配置'
+  '^user-interface ': '用户界面配置'
+
+# -----------------------------------------------------------
+# 噪声过滤（两侧同时移除）
+# -----------------------------------------------------------
+noise:
+  # 整块级别的噪声：段落头匹配时，整块丢弃
+  blocks:
+    - '^return$'
+
+  # 行级别的噪声：在所有块内删除匹配的行
+  lines:
+    - '^\s*#\s*$'
+    - '^\s*$'
+    - '^!Software Version'
+    - '^!Last configuration'
+    - '^shutdown$'
+
+# -----------------------------------------------------------
+# 漏配忽略（预期有、实际没有 → 不算问题）
+# -----------------------------------------------------------
+ignore_missing:
+
+  # 全局行级别不关心
+  global_lines:
+
+  # 段落内的行，按段落头匹配
+  block_lines:
+    - header_pattern: '^interface '
+      lines:
+        - 'shutdown'
+    - header_pattern: '^bgp '
+      lines:
+        - 'undo private-4-byte-as enable'
+
+# -----------------------------------------------------------
+# 多配忽略（实际有、预期没有 → 不算问题）
+# -----------------------------------------------------------
+ignore_extra:
+
+  global_lines:
+
+  block_lines:
+    - header_pattern: '^interface '
+      lines:
+        - 'device transceiver'
+    - header_pattern: '^bgp '
+      lines:
+        - 'undo private-4-byte-as enable'
