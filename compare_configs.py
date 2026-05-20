@@ -1,26 +1,18 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 """
-compare_configs.py — 配置下发验证比对工具
+compare_configs.py — 配置下发验证比对工具 v2
 
 功能：
     将预期配置（config_intended/*.cfg）与设备实际采集配置（config/*.log）
-    进行差异分析，找出漏配（预期有实际没有）和多配（实际有预期没有）。
-    结果输出 Markdown 报告到 data/ 目录。
+    进行差异分析，找出漏配和多配。结果输出 Markdown 报告到 data/ 目录。
 
 使用方式：
     python compare_configs.py
 
-依赖：
-    PyYAML (pip install PyYAML)
-
 流程：
-    1. 加载规则文件 (read/compare_rules.yaml)
-    2. 匹配设备（按设备名连接 .cfg 和 .log）
-    3. 解析配置（按 # 分块 → 按规则拆分子块 → 分类）
-    4. 清洗（噪声过滤 + 漏配/多配忽略）
-    5. 对比（无顺序逐行）
-    6. 输出报告
+    1. 加载规则 → 2. 匹配设备 → 3. 正则提取段落 → 4. 忽略过滤
+    → 5. 密码归一化 → 6. 集合差集对比 → 7. 输出报告
 """
 
 import os
@@ -33,10 +25,10 @@ import yaml
 # ============================================================
 # 路径常量
 # ============================================================
-INTENDED_DIR = 'read/config_intended'   # 预期配置目录（.cfg）
-COLLECTED_DIR = 'read/config'           # 采集配置目录（.log）
-RULES_PATH = 'read/compare_rules.yaml'   # 规则文件
-OUTPUT_DIR = 'data'                      # 输出目录
+INTENDED_DIR = 'read/config_intended'
+COLLECTED_DIR = 'read/config'
+RULES_PATH = 'read/compare_rules_v2.yaml'
+OUTPUT_DIR = 'data'
 
 
 # ============================================================
@@ -44,15 +36,7 @@ OUTPUT_DIR = 'data'                      # 输出目录
 # ============================================================
 
 def _read_file(path):
-    """
-    读取文件内容，统一处理编码和换行符。
-
-    参数：
-        path: 文件路径（相对项目根目录）
-
-    返回：
-        str — 文件内容（\n 换行），读取失败返回 None
-    """
+    """读取文件内容，失败返回 None"""
     try:
         with open(path, 'r', encoding='utf-8', errors='ignore') as f:
             return f.read()
@@ -60,942 +44,484 @@ def _read_file(path):
         return None
 
 
-def _compiled_rules(rules_list):
-    """
-    将规则列表中的 pattern 字符串编译为正则对象。
-
-    参数：
-        rules_list: list，每个元素可以是 str 或 dict（含 'pattern' 字段）
-
-    返回：
-        list of compiled re.Pattern
-    """
-    compiled = []
-    for rule in rules_list:
-        if isinstance(rule, str):
-            compiled.append(re.compile(rule, re.IGNORECASE))
-        elif isinstance(rule, dict) and 'pattern' in rule:
-            compiled.append(re.compile(rule['pattern'], re.IGNORECASE))
-    return compiled
-
-
 # ============================================================
 # 1. 加载规则
 # ============================================================
 
 def load_rules(rules_path):
-    """
-    加载 YAML 规则文件。
-
-    参数：
-        rules_path: 规则文件路径
-
-    返回：
-        dict — 包含 split_sections / section_categories / noise /
-                ignore_missing / ignore_extra 等字段
-
-    规则文件加载失败时返回空规则字典，保证主流程不崩溃。
-    """
+    """加载 YAML 规则文件，失败返回空规则"""
     content = _read_file(rules_path)
     if not content:
-        print(f'[警告] 规则文件 {rules_path} 读取失败，使用默认规则')
-        return {
-            'split_sections': [],
-            'section_categories': {},
-            'noise': {'blocks': [], 'lines': []},
-            'ignore_missing': {'global_lines': [], 'block_lines': []},
-            'ignore_extra': {'global_lines': [], 'block_lines': []},
-        }
-
-    rules = yaml.safe_load(content) or {}
-    return rules
+        print(f'[警告] 规则文件 {rules_path} 读取失败')
+        return {'sections': [], 'ignore': {'global': [], 'sections': []}}
+    return yaml.safe_load(content) or {'sections': [], 'ignore': {'global': [], 'sections': []}}
 
 
 # ============================================================
 # 2. 设备配对
 # ============================================================
 
-def _get_device_name_from_cfg(filename):
-    """
-    从 .cfg 文件名提取设备名。
-
-    参数：
-        filename: 如 'SZBL1D4FC01U29-DCN-DC1_BMC-ACC.cfg'
-
-    返回：
-        str — 设备名 'SZBL1D4FC01U29-DCN-DC1_BMC-ACC'
-    """
+def _dev_name_from_cfg(filename):
+    """从 .cfg 文件名提取设备名"""
     return filename.replace('.cfg', '')
 
 
-def _get_device_name_from_log(filename):
-    """
-    从 .log 文件名提取设备名。
-
-    .log 文件名格式为「管理IP_设备名.log」，
-    取第一个下划线之后的部分作为设备名。
-
-    参数：
-        filename: 如 '12.255.190.252_SZBL1D4FD04U44-OBN-DCN-ACC.log'
-
-    返回：
-        str — 设备名 'SZBL1D4FD04U44-OBN-DCN-ACC'
-    """
+def _dev_name_from_log(filename):
+    """从 IP_设备名.log 提取设备名"""
     name = filename.replace('.log', '')
-    # 取第一个 _ 之后的部分
     parts = name.split('_', 1)
     return parts[1] if len(parts) > 1 else parts[0]
 
 
 def match_devices(intended_dir, collected_dir):
-    """
-    将 config_intended/*.cfg 与 config/*.log 按设备名配对。
-
-    返回三个列表：
-        matched:  [(设备名, cfg_path, log_path), ...]  — 两端都有的
-        only_intended: [cfg_path, ...]  — 只有预期没有采集的
-        only_collected: [log_path, ...] — 只有采集没有预期的
-    """
-    # 扫描目录
+    """将 config_intended/*.cfg 与 config/*.log 按设备名配对"""
     intended_files = {}
     collected_files = {}
 
     if os.path.isdir(intended_dir):
         for f in os.listdir(intended_dir):
             if f.endswith('.cfg') and not f.startswith('.'):
-                dev_name = _get_device_name_from_cfg(f)
-                intended_files[dev_name] = os.path.join(intended_dir, f)
+                intended_files[_dev_name_from_cfg(f)] = os.path.join(intended_dir, f)
 
     if os.path.isdir(collected_dir):
         for f in os.listdir(collected_dir):
             if f.endswith('.log') and not f.startswith('.'):
-                dev_name = _get_device_name_from_log(f)
-                collected_files[dev_name] = os.path.join(collected_dir, f)
+                collected_files[_dev_name_from_log(f)] = os.path.join(collected_dir, f)
 
-    # 配对
     all_devices = set(intended_files.keys()) | set(collected_files.keys())
-    matched = []
-    only_intended = []
-    only_collected = []
+    matched, only_intended, only_collected = [], [], []
 
     for dev_name in all_devices:
-        cfg_path = intended_files.get(dev_name)
-        log_path = collected_files.get(dev_name)
-        if cfg_path and log_path:
-            matched.append((dev_name, cfg_path, log_path))
-        elif cfg_path:
-            only_intended.append(cfg_path)
+        cfg = intended_files.get(dev_name)
+        log = collected_files.get(dev_name)
+        if cfg and log:
+            matched.append((dev_name, cfg, log))
+        elif cfg:
+            only_intended.append(cfg)
         else:
-            only_collected.append(log_path)
+            only_collected.append(log)
 
     return matched, only_intended, only_collected
 
 
 # ============================================================
-# 3. 从采集日志中提取 current-configuration 段
+# 3. 采集日志中提取配置段 + 型号版本
 # ============================================================
 
 def extract_collected_config(text):
-    """
-    从原始采集日志中提取 display current-configuration 的输出段。
-
-    日志格式：
-        ...（之前可能有其他命令的输出）
-        display current-configuration
-        !Software Version V200R019C10SPC500       ← 从这里开始
-        #
-        sysname XXX
-        #
-        ...
-        #
-        return
-        #                              ← 配置段到此结束
-        <设备名>                         ← 下一个命令提示符，截断点
-
-    参数：
-        text: 原始日志全文
-
-    返回：
-        str — 提取出的配置段，找不到时返回 None
-    """
-    # 定位 display current-configuration 命令（可能有 | no 等管道参数）
-    match = re.search(
-        r'display current-configuration([\s\S]*?return)',
-        text, re.IGNORECASE
-    )
-    return match.group(1).strip() if match else None
+    """从采集日志中提取 display current-configuration 输出段"""
+    m = re.search(r'display current-configuration([\s\S]*?return)', text, re.IGNORECASE)
+    return m.group(1).strip() if m else None
 
 
 def extract_model_version(log_text):
-    """
-    从原始采集日志中提取设备型号和版本号。
-
-    从 display version 命令的输出中提取：
-        - 型号：HUAWEI CE8860-4C-EI uptime is... → CE8860-4C-EI
-        - 版本：Version 8.191 (CE8860EI V200R019C10SPC800) → V200R019C10SPC800
-
-    参数：
-        log_text: 原始日志全文
-
-    返回：
-        (model, version) — 均为 str 或 None
-    """
-    model = None
-    version = None
-
-    # 定位 display version 输出段
+    """从 display version 输出中提取型号和版本号"""
+    model = version = None
     ver_section = re.search(
         r'display version[^\n]*\n(.*?)(?=\n\s*<|\Z)',
         log_text, re.IGNORECASE | re.DOTALL
     )
     if ver_section:
-        ver_text = ver_section.group(0)
-        # 提取型号：HUAWEI <型号> uptime is
-        model_match = re.search(
-            r'HUAWEI\s+(\S+)\s+(?:Routing Switch\s+)?uptime is',
-            ver_text, re.IGNORECASE
-        )
-        if model_match:
-            model = model_match.group(1)
-        # 提取版本：Version X.XX (XXX V200R...)
-        ver_match = re.search(
-            r'Version\s+\S+\s+\(\S+\s+(V?\d+R\d+C\d+(?:SPC\d+)?)\)',
-            ver_text, re.IGNORECASE
-        )
-        if ver_match:
-            version = ver_match.group(1)
-
+        vt = ver_section.group(0)
+        mm = re.search(r'HUAWEI\s+(\S+)\s+(?:Routing Switch\s+)?uptime is', vt, re.IGNORECASE)
+        if mm:
+            model = mm.group(1)
+        vm = re.search(r'Version\s+\S+\s+\(\S+\s+(V?\d+R\d+C\d+(?:SPC\d+)?)\)', vt, re.IGNORECASE)
+        if vm:
+            version = vm.group(1)
     return model, version
 
 
 # ============================================================
-# 4. 按 # 分割配置为配置块
+# 4. 正则提取段落 → 结构化配置
 # ============================================================
 
-def parse_blocks(text):
+def _split_sub_blocks(block_text, split_by):
     """
-    将配置文本按 # 行分割为配置块列表。
+    将段落文本按 split_by 正则拆分子段。
 
-    分割规则：
-        - 以 # 单独一行为分隔符（忽略行首尾空格）
-        - 连续非空行直到下一个 # 行视为一个配置块
-        - 过滤掉空块
+    例如 interface 块可能含 GE0/0/1 ~ GE0/0/48，
+    按 '^interface ' 拆成每个接口一个子段。
 
-    参数：
-        text: 配置文本（预期配置全文 或 提取出的采集配置段）
-
-    返回：
-        list of str — 每项为一个配置块的完整内容（不含首尾 # 行）
+    返回: [(子段头, [子命令行]), ...]
     """
-    # 按 \n#\n 分割，兼容 \r\n
-    text = text.replace('\r\n', '\n')
-    raw_blocks = re.split(r'\n\s*#\s*\n', text)
+    lines = [l.strip() for l in block_text.strip().split('\n')]
+    # 去掉末尾的 # 行
+    if lines and lines[-1] == '#':
+        lines = lines[:-1]
 
-    blocks = []
-    for block in raw_blocks:
-        block = block.strip()
-        if not block:
-            continue
-        # 如果块的第一行就是单独的 #，去掉这行，剩下的才是配置内容
-        block_lines = block.split('\n')
-        if block_lines[0].strip() == '#':
-            block = '\n'.join(block_lines[1:]).strip()
-            if not block:
-                continue
-        blocks.append(block)
-
-    return blocks
-
-
-# ============================================================
-# 5. 提取段落头 并 按规则拆分子块
-# ============================================================
-
-def _get_block_header(block_text):
-    """
-    获取配置块的第一行作为段落头。
-
-    参数：
-        block_text: 配置块文本（多行）
-
-    返回：
-        str — 第一行（去除首尾空格）
-    """
-    lines = block_text.strip().split('\n')
-    return lines[0].strip()
-
-
-def _get_block_body(block_text):
-    """
-    获取配置块第一行之后的内容（子命令行）。
-
-    参数：
-        block_text: 配置块文本（多行）
-
-    返回：
-        list of str — 子命令行列表（已去除首尾空格，过滤空行）
-    """
-    lines = block_text.strip().split('\n')
-    body = [line.strip() for line in lines[1:] if line.strip()]
-    return body
-
-
-def _classify_section(header, categories):
-    """
-    根据段落头匹配中文分类名。
-
-    参数：
-        header: 段落头字符串
-        categories: dict，{正则模式: 分类名}
-
-    返回：
-        str or None — 匹配到的分类名，未匹配返回 None
-    """
-    for pattern, category in categories.items():
-        if re.match(pattern, header, re.IGNORECASE):
-            return category
-    return None
-
-
-def _should_split_section(header, split_sections):
-    """
-    判断段落是否需要进一步拆分子块。
-
-    参数：
-        header: 段落头字符串
-        split_sections: list of dict [{'header_pattern': '...'}]
-
-    返回：
-        bool
-    """
-    for rule in split_sections:
-        if isinstance(rule, dict):
-            pattern = rule.get('header_pattern', '')
-        else:
-            pattern = rule
-        if re.match(pattern, header, re.IGNORECASE):
-            return True
-    return False
-
-
-def _split_interface_block(header, body_lines):
-    """
-    将 interface 配置块按接口名拆分为子段。
-
-    一个 interface 块可能包含多个接口定义：
-        interface GigabitEthernet0/0/1
-         port link-type access
-         port default vlan 2104
-        interface GigabitEthernet0/0/2
-         port link-type trunk
-         ...
-
-    参数：
-        header: 第一个 interface 的段落头（如 'interface GigabitEthernet0/0/1'）
-        body_lines: 子命令行列表
-
-    返回：
-        list of (子段头, 子段体) — 每个子段对应一个接口
-    """
     sub_blocks = []
-    current_header = header
-    current_body = []
+    cur_header = None
+    cur_body = []
 
-    for line in body_lines:
-        if line.startswith('interface '):
-            # 保存上一个子段
-            if current_header is not None:
-                sub_blocks.append((current_header, current_body))
-            current_header = line
-            current_body = []
+    for line in lines:
+        if not line:
+            continue
+        if re.match(split_by, line, re.IGNORECASE):
+            if cur_header is not None:
+                sub_blocks.append((cur_header, cur_body))
+            cur_header = line
+            cur_body = []
         else:
-            current_body.append(line)
+            cur_body.append(line)
 
-    # 保存最后一个子段
-    if current_header is not None:
-        sub_blocks.append((current_header, current_body))
+    if cur_header is not None:
+        sub_blocks.append((cur_header, cur_body))
 
     return sub_blocks
 
 
-def _split_generic_block(header, body_lines):
+def parse_config(text, sections_def):
     """
-    通用子块拆分：将整个块作为一个子段。
+    用 sections_def 中每条的正则从全文提取段落，剩余归全局。
 
     参数：
-        header: 段落头
-        body_lines: 子命令行列表
+        text: 配置全文
+        sections_def: YAML 中 sections 列表
 
     返回：
-        list of (子段头, 子段体)
-    """
-    return [(header, body_lines)]
-
-
-def process_blocks(blocks, rules):
-    """
-    解析配置块，按规则拆分子块并分类，生成结构化配置数据。
-
-    参数：
-        blocks: parse_blocks() 输出的原始配置块列表
-        rules: 规则字典
-
-    返回：
-        dict，格式：
         {
             'global': ['行1', '行2', ...],
             'sections': {
                 '端口配置': {
-                    'GigabitEthernet0/0/1': ['行1', '行2'],
+                    'interface GE0/0/1': ['shutdown', 'port link-type access'],
                     ...
                 },
-                'AAA配置': {
-                    'aaa': ['行1', ...],
-                },
                 ...
-            },
-            '_model': str or None,
-            '_version': str or None,
+            }
         }
     """
-    split_sections = rules.get('split_sections', [])
-    categories = rules.get('section_categories', {})
+    if not sections_def:
+        # 没有定义段落，全部归全局
+        return {
+            'global': [l.strip() for l in text.split('\n') if l.strip()],
+            'sections': {},
+        }
 
-    result = {
-        'global': [],
-        'sections': {},
-        '_model': None,
-        '_version': None,
-    }
+    # 收集所有正则匹配的 (start, end, section_def, match_text)
+    all_matches = []
+    for sec in sections_def:
+        for m in re.finditer(sec['regex'], text, re.IGNORECASE | re.DOTALL):
+            all_matches.append((m.start(), m.end(), sec))
 
-    # 全局分类（兜底用）
-    GLOBAL_CATEGORY = '全局配置'
+    # 按位置排序
+    all_matches.sort(key=lambda x: x[0])
 
-    for block in blocks:
-        header = _get_block_header(block)
-        body_lines = _get_block_body(block)
+    # 提取段落 → 拆分子段
+    sections = {}
+    matched_ranges = []
 
-        # 提取型号和版本信息
-        ver_match = re.search(
-            r'HUAWEI\s+(\S+)\s+(?:Routing Switch\s+)?uptime is',
-            header, re.IGNORECASE
-        )
-        if ver_match:
-            result['_model'] = ver_match.group(1)
-            continue
+    for start, end, sec in all_matches:
+        matched_ranges.append((start, end))
+        block_text = text[start:end]
+        sub_blocks = _split_sub_blocks(block_text, sec['split_by'])
 
-        # 提取版本号（!Software Version 行）
-        sw_match = re.search(r'Software Version\s+(\S+)', header)
-        if sw_match:
-            result['_version'] = sw_match.group(1)
-            continue
+        name = sec['name']
+        if name not in sections:
+            sections[name] = {}
+        for sub_h, sub_b in sub_blocks:
+            sections[name][sub_h] = sub_b
 
-        # 分类
-        category = _classify_section(header, categories)
-
-        if _should_split_section(header, split_sections):
-            # 需要拆分的段落
-            if header.startswith('interface '):
-                sub_blocks = _split_interface_block(header, body_lines)
-            else:
-                sub_blocks = _split_generic_block(header, body_lines)
-
-            for sub_header, sub_body in sub_blocks:
-                cat = category or GLOBAL_CATEGORY
-                if cat not in result['sections']:
-                    result['sections'][cat] = {}
-                # 如果子段体为空，也保留（如接口无子命令的情况）
-                result['sections'][cat][sub_header] = sub_body
+    # 提取全局行（不在任何匹配区间内的文本）
+    matched_ranges.sort()
+    merged = []
+    for s, e in matched_ranges:
+        if merged and s <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], e))
         else:
-            # 不需要拆分的段落 — 放入全局或分类下
-            if category and category != GLOBAL_CATEGORY:
-                if category not in result['sections']:
-                    result['sections'][category] = {}
-                result['sections'][category][header] = body_lines
-            else:
-                # 全局配置 — 每行单独存放
-                if header.strip():
-                    result['global'].append(header.strip())
-                for line in body_lines:
-                    if line.strip():
-                        result['global'].append(line.strip())
+            merged.append((s, e))
 
-    return result
+    remaining_parts = []
+    prev = 0
+    for s, e in merged:
+        remaining_parts.append(text[prev:s])
+        prev = e
+    remaining_parts.append(text[prev:])
+
+    global_text = ''.join(remaining_parts)
+    global_lines = [l.strip() for l in global_text.split('\n') if l.strip()]
+
+    return {'global': global_lines, 'sections': sections}
 
 
 # ============================================================
-# 6. 清洗配置
+# 5. 忽略过滤 + 密码归一化
 # ============================================================
 
 def _match_any(line, patterns):
-    """
-    检查一行是否匹配任意一个正则模式。
-
-    参数：
-        line: 待检查的文本行
-        patterns: list of compiled re.Pattern
-
-    返回：
-        bool
-    """
+    """行是否匹配任意一个正则（re.search，ignore_case）"""
     for pat in patterns:
         if pat.search(line):
             return True
     return False
 
 
-def _line_in_ignored(header, line, ignore_block_rules):
+def _match_model_version(rule, model, version):
     """
-    检查某行是否匹配段落级别的忽略规则。
+    判断规则是否匹配当前设备的型号/版本。
 
-    参数：
-        header: 段落头（如 'GigabitEthernet0/0/1'）
-        line: 子命令行
-        ignore_block_rules: list of dict {header_pattern, lines[[pattern]]}
-
-    返回：
-        bool
+    规则可含可选的 model / version 字段，子串匹配，AND 关系。
+    无 model/version → 匹配所有设备。
     """
-    for rule in ignore_block_rules:
-        header_pattern = rule.get('header_pattern', '')
-        line_patterns = rule.get('lines', [])
-        compiled_lines = _compiled_rules(line_patterns)
-        if re.match(header_pattern, header, re.IGNORECASE):
-            if _match_any(line, compiled_lines):
-                return True
-    return False
+    if not isinstance(rule, dict):
+        return True  # 纯字符串规则，无条件
+
+    rm = rule.get('model')
+    rv = rule.get('version')
+    if rm is None and rv is None:
+        return True
+
+    if rm is not None:
+        if model is None or rm not in model:
+            return False
+    if rv is not None:
+        if version is None or rv not in version:
+            return False
+    return True
 
 
-def _filter_by_model_version(rules_list, model, version):
+def _compile_global_ignores(global_rules, model, version):
     """
-    按设备型号/版本过滤规则列表。
-
-    规则元素可以是 str（纯字符串规则）或 dict（含 pattern/header_pattern 等字段）。
-    - str 类型：始终保留（无条件规则，所有设备生效）
-    - dict 且未指定 model/version：始终保留（无条件规则）
-    - dict 且指定了 model 和/或 version：仅当设备匹配时才保留该规则
-
-    匹配规则：子串包含（例如 rule_model='CE6881' 匹配设备型号 'CE6881-48S6CQ-EI'）。
-    model 和 version 同时指定时为 AND 关系（两者都满足才保留）。
-
-    参数：
-        rules_list: list — 原始规则列表
-        model: str or None — 设备型号
-        version: str or None — 设备版本号
-
-    返回：
-        list — 过滤后的规则列表
+    从全局忽略规则中过滤出匹配当前设备的，编译为正则列表。
+    规则可以是 str 或 dict{pattern, model?, version?}。
     """
-    filtered = []
-    for rule in rules_list:
-        # 非 dict 类型（如纯 str）→ 无条件保留
+    patterns = []
+    for rule in (global_rules or []):
+        if not _match_model_version(rule, model, version):
+            continue
+        p = rule if isinstance(rule, str) else rule.get('pattern', '')
+        if p:
+            patterns.append(re.compile(p, re.IGNORECASE))
+    return patterns
+
+
+def _compile_section_ignores(section_rules, model, version):
+    """
+    从段落忽略规则中过滤匹配当前设备的，返回 [(compiled_header, [compiled_line]), ...]。
+    """
+    compiled = []
+    for rule in (section_rules or []):
         if not isinstance(rule, dict):
-            filtered.append(rule)
             continue
-
-        rule_model = rule.get('model')
-        rule_version = rule.get('version')
-
-        # 未指定 model 且未指定 version → 无条件保留（全设备生效）
-        if rule_model is None and rule_version is None:
-            filtered.append(rule)
+        if not _match_model_version(rule, model, version):
             continue
-
-        # 检查 model 匹配（子串包含）
-        model_ok = True
-        if rule_model is not None:
-            if model is None:
-                model_ok = False
-            else:
-                model_ok = rule_model in model
-
-        # 检查 version 匹配（子串包含）
-        version_ok = True
-        if rule_version is not None:
-            if version is None:
-                version_ok = False
-            else:
-                version_ok = rule_version in version
-
-        # AND 关系：两者都满足才保留
-        if model_ok and version_ok:
-            filtered.append(rule)
-
-    return filtered
+        hp = rule.get('header_pattern', '')
+        lps = rule.get('lines', [])
+        if hp and lps:
+            compiled.append((
+                re.compile(hp, re.IGNORECASE),
+                [re.compile(lp, re.IGNORECASE) for lp in lps],
+            ))
+    return compiled
 
 
-def _normalize_password(line):
+def apply_ignore(config_data, ignore_rules, model=None, version=None):
     """
-    将配置行中的密码密文归一化为占位符，避免加密结果差异导致误报。
+    对解析后的配置应用忽略规则（统一，两侧相同）。
 
-    Huawei 设备每次 display current-configuration 时加密结果可能不同，
-    但配置功能完全相同。归一化后两侧密文变成相同的占位符，集合比较
-    即可正确判定为一致。
-
-    处理的密文类型：
-        - password irreversible-cipher <密文>  → <密码密文>
-        - snmp-agent community read cipher <密文> → <SNMP密文>
-        - set authentication password cipher <密文> → <认证密文>
-
-    参数：
-        line: str — 单行配置文本
-
-    返回：
-        str — 归一化后的行
+    全局行：匹配 global 正则的直接丢弃
+    段落行：先匹配 header_pattern，再匹配 lines 的直接丢弃
     """
-    # password irreversible-cipher 后的密文
-    line = re.sub(
-        r'(password\s+irreversible-cipher\s+)\S+',
-        r'\1<密码密文>', line
-    )
-    # snmp-agent community read cipher 后的密文
-    line = re.sub(
-        r'(snmp-agent\s+community\s+read\s+cipher\s+)\S+',
-        r'\1<SNMP密文>', line
-    )
-    # set authentication password cipher 后的密文
-    line = re.sub(
-        r'(set\s+authentication\s+password\s+cipher\s+)\S+',
-        r'\1<认证密文>', line
-    )
-    return line
+    global_ignores = _compile_global_ignores(
+        ignore_rules.get('global', []), model, version)
+    section_ignores = _compile_section_ignores(
+        ignore_rules.get('sections', []), model, version)
 
+    result = {'global': [], 'sections': {}}
 
-def clean_blocks(config_data, rules, side):
-    """
-    对已解析的配置数据进行清洗。
-
-    清洗顺序：
-        1. noise.lines — 在所有位置删除匹配行
-        2. noise.blocks — 按段落头删除整块
-        3. side-specific — 按 side 应用 ignore_missing 或 ignore_extra
-        4. 密码归一化 — 将密文替换为占位符，避免加密结果差异导致误报
-
-    参数：
-        config_data: process_blocks() 的输出
-        rules: 规则字典
-        side: 'intended' 或 'collected'
-
-    返回：
-        dict — 清洗后的配置数据
-    """
-    # 提取设备型号/版本，用于规则过滤
-    model = config_data.get('_model')
-    version = config_data.get('_version')
-
-    noise = rules.get('noise', {})
-    noise_lines = _compiled_rules(
-        _filter_by_model_version(noise.get('lines') or [], model, version))
-    noise_blocks = _compiled_rules(
-        _filter_by_model_version(noise.get('blocks') or [], model, version))
-
-    # 选择本侧忽略规则
-    if side == 'intended':
-        ignore_key = 'ignore_missing'
-    else:
-        ignore_key = 'ignore_extra'
-    ignore_rules = rules.get(ignore_key, {})
-    ignore_global = _compiled_rules(
-        _filter_by_model_version(ignore_rules.get('global_lines') or [], model, version))
-    ignore_block = _filter_by_model_version(
-        ignore_rules.get('block_lines') or [], model, version)
-
-    result = {
-        'global': [],
-        'sections': {},
-        '_model': config_data.get('_model'),
-        '_version': config_data.get('_version'),
-    }
-
-    # ---- 清洗全局行 ----
+    # 过滤全局行
     for line in config_data.get('global', []):
-        # noise.lines
-        if _match_any(line, noise_lines):
-            continue
-        # noise.blocks
-        if _match_any(line, noise_blocks):
-            continue
-        # 侧特异性忽略
-        if _match_any(line, ignore_global):
-            continue
-        result['global'].append(_normalize_password(line))
+        if not _match_any(line, global_ignores):
+            result['global'].append(line)
 
-    # ---- 清洗各段落 ----
-    for category, sub_dict in config_data.get('sections', {}).items():
-        result['sections'][category] = {}
+    # 过滤段落行
+    for cat_name, sub_dict in config_data.get('sections', {}).items():
+        result['sections'][cat_name] = {}
         for header, body_lines in sub_dict.items():
-            # noise.blocks — 段落头匹配则整个段落丢弃
-            if _match_any(header, noise_blocks):
-                continue
-
-            cleaned_body = []
+            kept = []
             for line in body_lines:
-                # noise.lines
-                if _match_any(line, noise_lines):
-                    continue
-                # 段落内忽略
-                if _line_in_ignored(header, line, ignore_block):
-                    continue
-                cleaned_body.append(_normalize_password(line))
-
-            if cleaned_body:
-                result['sections'][category][header] = cleaned_body
+                # 检查段落级忽略
+                skip = False
+                for ch, cl in section_ignores:
+                    if ch.match(header) and _match_any(line, cl):
+                        skip = True
+                        break
+                if not skip:
+                    kept.append(line)
+            if kept:
+                result['sections'][cat_name][header] = kept
 
     return result
 
 
+def normalize_passwords(config_data):
+    """
+    将密码密文归一化为占位符，避免加密结果差异导致误报。
+
+    Huawei 每次 display 加密结果可能不同，但配置功能相同。
+    """
+    def _norm(line):
+        # password irreversible-cipher <密文>
+        line = re.sub(r'(password\s+irreversible-cipher\s+)\S+', r'\1<密文>', line)
+        # snmp-agent community read cipher <密文>
+        line = re.sub(r'(snmp-agent\s+community\s+read\s+cipher\s+)\S+', r'\1<密文>', line)
+        # set authentication password cipher <密文>
+        line = re.sub(r'(set\s+authentication\s+password\s+cipher\s+)\S+', r'\1<密文>', line)
+        return line
+
+    result = {'global': [], 'sections': {}}
+    for line in config_data.get('global', []):
+        result['global'].append(_norm(line))
+    for cat, sub in config_data.get('sections', {}).items():
+        result['sections'][cat] = {}
+        for h, lines in sub.items():
+            result['sections'][cat][h] = [_norm(l) for l in lines]
+    return result
+
+
 # ============================================================
-# 7. SSH 密码套件比较（无序集合比较）
+# 6. SSH 密码套件比较（无序集合）
 # ============================================================
 
 def _parse_ssh_cipher_line(line):
-    """
-    从 SSH cipher 配置行提取密码套件集合。
-
-    例如：
-        'ssh server cipher aes256_gcm aes128_gcm aes256_ctr'
-        → {'aes256_gcm', 'aes128_gcm', 'aes256_ctr'}
-
-    参数：
-        line: SSH cipher 配置行
-
-    返回：
-        set of str 或 None（如果不是 cipher 行）
-    """
-    # 匹配 ssh server/client cipher / hmac / key-exchange 行
+    """提取 SSH cipher/hmac 行的套件集合"""
     m = re.match(
-        r'(?:ssh\s+(?:server|client)\s+'
-        r'(?:cipher|hmac|key-exchange|publickey)\s+)(.*)',
+        r'(ssh\s+(?:server|client)\s+(?:cipher|hmac|key-exchange|publickey)\s+)(.*)',
         line, re.IGNORECASE
     )
-    if m:
-        return set(m.group(1).split())
-    return None
+    return set(m.group(2).split()) if m else None
 
 
-def _ssh_cipher_diff(intended_lines, actual_lines):
-    """
-    两行之间的 SSH 密码套件差异（无序集合比较）。
+def _ssh_cipher_diff(i_lines, a_lines):
+    """SSH 密码套件无序集合比较"""
+    i_sets = {l: s for l in i_lines if (s := _parse_ssh_cipher_line(l))}
+    a_sets = {l: s for l in a_lines if (s := _parse_ssh_cipher_line(l))}
 
-    参数：
-        intended_lines: 预期配置的行列表
-        actual_lines: 实际配置的行列表
+    missing, extra = [], []
+    a_remaining = dict(a_sets)
 
-    返回：
-        (missing, extra) — 缺失集合 和 多余集合
-    """
-    # 将配置行转为 行内容→套件集合 的映射
-    intend_sets = {}
-    for line in intended_lines:
-        s = _parse_ssh_cipher_line(line)
-        if s:
-            intend_sets[line] = s
-
-    actual_sets = {}
-    for line in actual_lines:
-        s = _parse_ssh_cipher_line(line)
-        if s:
-            actual_sets[line] = s
-
-    missing = []
-    extra = []
-
-    # 逐行比较
-    for i_line, i_set in intend_sets.items():
-        # 在实际中找同类命令行
+    for i_line, i_set in i_sets.items():
+        m = re.match(r'(ssh\s+\S+\s+\S+)', i_line, re.IGNORECASE)
+        cmd_i = m.group(1).lower() if m else ''
         matched = False
-        for a_line, a_set in actual_sets.items():
-            i_cmd_match = re.match(
-                r'(ssh\s+(?:server|client)\s+(?:cipher|hmac|key-exchange|publickey))',
-                i_line, re.IGNORECASE)
-            a_cmd_match = re.match(
-                r'(ssh\s+(?:server|client)\s+(?:cipher|hmac|key-exchange|publickey))',
-                a_line, re.IGNORECASE)
-            if i_cmd_match and a_cmd_match:
-                cmd_type_i = i_cmd_match.group(1)
-                cmd_type_a = a_cmd_match.group(1)
-                if cmd_type_i.lower() == cmd_type_a.lower():
-                    matched = True
-                    # 计算套件差集
-                    missing_set = i_set - a_set
-                    extra_set = a_set - i_set
-                    if missing_set:
-                        missing.append(f'{cmd_type_i} 缺失: {" ".join(sorted(missing_set))}')
-                    if extra_set:
-                        extra.append(f'{cmd_type_a} 多余: {" ".join(sorted(extra_set))}')
-                    # 移除已匹配的实际行
-                    del actual_sets[a_line]
-                    break
+        for a_line, a_set in list(a_remaining.items()):
+            m = re.match(r'(ssh\s+\S+\s+\S+)', a_line, re.IGNORECASE)
+            cmd_a = m.group(1).lower() if m else ''
+            if cmd_i == cmd_a:
+                matched = True
+                ms = i_set - a_set
+                es = a_set - i_set
+                if ms:
+                    missing.append(f'{cmd_i} 缺失: {" ".join(sorted(ms))}')
+                if es:
+                    extra.append(f'{cmd_a} 多余: {" ".join(sorted(es))}')
+                del a_remaining[a_line]
+                break
         if not matched:
             missing.append(f'{i_line}  (整行缺失)')
 
-    # 剩余未匹配的实际行
-    for a_line in actual_sets:
+    for a_line in a_remaining:
         extra.append(f'{a_line}  (整行多余)')
 
     return missing, extra
 
 
 # ============================================================
-# 8. 对比逻辑
+# 7. 对比
 # ============================================================
 
 def compare_configs(intended, actual, model=None, version=None):
     """
-    对比预期配置和实际配置，找出漏配和多配。
+    对比预期和实际配置，逐段做集合差集。
 
-    参数：
-        intended: 清洗后的预期配置数据
-        actual: 清洗后的实际配置数据
-        model: 设备型号（从采集日志中提取，可选）
-        version: 设备版本（从采集日志中提取，可选）
-
-    返回：
-        dict，格式：
-        {
-            'model': str or None,
-            'version': str or None,
-            'diffs': {
-                '端口配置': {
-                    'missing': {
-                        'GigabitEthernet0/0/1': ['shutdown', ...],
-                    },
-                    'extra': {
-                        'GigabitEthernet0/0/2': ['description xxx', ...],
-                    },
-                },
-                '全局配置': {
-                    'missing': ['行1', '行2', ...],
-                    'extra': ['行3', ...],
-                },
-                ...
-            }
-        }
+    返回: {'model': ..., 'version': ..., 'diffs': {分类: {missing/extra: [...]}}}
     """
     result = {
-        'model': model or intended.get('_model') or actual.get('_model'),
-        'version': version or intended.get('_version') or actual.get('_version'),
+        'model': model,
+        'version': version,
         'diffs': {},
     }
 
-    all_categories = set(list(intended.get('sections', {}).keys())
-                         + list(actual.get('sections', {}).keys()))
+    all_cats = set(intended.get('sections', {}).keys()) | set(actual.get('sections', {}).keys())
 
-    for category in sorted(all_categories):
-        cat_diff = {}
+    for cat in sorted(all_cats):
+        cat_diffs = {}
 
-        intended_sub = intended.get('sections', {}).get(category, {})
-        actual_sub = actual.get('sections', {}).get(category, {})
+        # --- 段落比较 ---
+        i_sub = intended.get('sections', {}).get(cat, {})
+        a_sub = actual.get('sections', {}).get(cat, {})
+        all_headers = set(i_sub.keys()) | set(a_sub.keys())
 
-        all_headers = set(list(intended_sub.keys()) + list(actual_sub.keys()))
+        missing_h = {}
+        extra_h = {}
+        for h in sorted(all_headers):
+            i_lines = set(i_sub.get(h, []))
+            a_lines = set(a_sub.get(h, []))
+            miss = sorted(i_lines - a_lines)
+            extr = sorted(a_lines - i_lines)
+            if miss:
+                missing_h[h] = miss
+            if extr:
+                extra_h[h] = extr
 
-        missing_headers = {}
-        extra_headers = {}
-        missing_global = []
-        extra_global = []
+        if missing_h:
+            cat_diffs['missing_headers'] = missing_h
+        if extra_h:
+            cat_diffs['extra_headers'] = extra_h
 
-        if category == '全局配置':
-            # 全局配置 — 无顺序集合比较（SSH 密码套件特殊处理）
-            intended_lines = intended.get('global', [])
-            actual_lines = actual.get('global', [])
+        if cat_diffs:
+            result['diffs'][cat] = cat_diffs
 
-            # SSH cipher 专用比较
-            ssh_missing, ssh_extra = _ssh_cipher_diff(intended_lines, actual_lines)
+    # --- 全局比较 ---
+    i_global = intended.get('global', [])
+    a_global = actual.get('global', [])
 
-            # 剩余行做普通集合比较
-            # 过滤掉 SSH cipher 行
-            i_remaining = [l for l in intended_lines if not _parse_ssh_cipher_line(l)]
-            a_remaining = [l for l in actual_lines if not _parse_ssh_cipher_line(l)]
+    # SSH cipher 无序比较
+    ssh_missing, ssh_extra = _ssh_cipher_diff(i_global, a_global)
 
-            i_set = set(i_remaining)
-            a_set = set(a_remaining)
+    # 其余行集合差集
+    i_rest = set(l for l in i_global if not _parse_ssh_cipher_line(l))
+    a_rest = set(l for l in a_global if not _parse_ssh_cipher_line(l))
 
-            missing_global = sorted(i_set - a_set) + ssh_missing
-            extra_global = sorted(a_set - i_set) + ssh_extra
-        else:
-            # 段落比较（按子段头）
-            for header in sorted(all_headers):
-                i_lines = intended_sub.get(header, [])
-                a_lines = actual_sub.get(header, [])
+    missing = sorted(i_rest - a_rest) + ssh_missing
+    extra = sorted(a_rest - i_rest) + ssh_extra
 
-                i_set = set(i_lines)
-                a_set = set(a_lines)
-
-                miss = sorted(i_set - a_set)
-                ext = sorted(a_set - i_set)
-
-                if miss:
-                    missing_headers[header] = miss
-                if ext:
-                    extra_headers[header] = ext
-
-        if missing_global:
-            cat_diff['missing'] = missing_global
-        if extra_global:
-            cat_diff['extra'] = extra_global
-        if missing_headers:
-            cat_diff.setdefault('missing_headers', {}).update(missing_headers)
-        if extra_headers:
-            cat_diff.setdefault('extra_headers', {}).update(extra_headers)
-
-        if cat_diff:
-            result['diffs'][category] = cat_diff
+    if missing or extra:
+        global_diffs = {}
+        if missing:
+            global_diffs['missing'] = missing
+        if extra:
+            global_diffs['extra'] = extra
+        result['diffs']['全局配置'] = global_diffs
 
     return result
 
 
 # ============================================================
-# 9. 生成报告
+# 8. 生成报告
 # ============================================================
 
 def _mask_sensitive(text):
-    """
-    对报告中的敏感信息进行脱敏处理。
-
-    替换明文密码和加密密码为占位符，防止敏感信息写入报告文件。
-    """
-    # 密码 irreversible-cipher 后面的值
-    text = re.sub(
-        r'(password irreversible-cipher\s+)\S+',
-        r'\1<密文>', text
-    )
-    # SNMP community cipher
-    text = re.sub(
-        r'(snmp-agent community read cipher\s+)\S+',
-        r'\1<密文>', text
-    )
-    # set authentication password cipher
-    text = re.sub(
-        r'(set authentication password cipher\s+)\S+',
-        r'\1<密文>', text
-    )
+    """报告脱敏处理"""
+    text = re.sub(r'(password\s+irreversible-cipher\s+)\S+', r'\1<密文>', text)
+    text = re.sub(r'(snmp-agent\s+community\s+read\s+cipher\s+)\S+', r'\1<密文>', text)
+    text = re.sub(r'(set\s+authentication\s+password\s+cipher\s+)\S+', r'\1<密文>', text)
     return text
 
 
 def generate_report(results, timestamp):
-    """
-    生成 Markdown 格式的比对报告。
-
-    参数：
-        results: 列表，每项为 (设备名, 比对结果dict 或 错误信息)
-                 比对结果 dict 格式见 compare_configs() 返回值
-        timestamp: 时间戳字符串（用于文件名和内文）
-
-    返回：
-        str — Markdown 报告全文
-    """
-    lines = []
-    lines.append('# 配置下发验证比对报告\n')
-    lines.append(f'- 生成时间: {timestamp}')
-    lines.append(f'- 预期配置目录: `{INTENDED_DIR}`')
-    lines.append(f'- 采集配置目录: `{COLLECTED_DIR}`')
-    lines.append(f'- 忽略规则文件: `{RULES_PATH}`\n')
+    """生成 Markdown 报告"""
+    lines = [
+        '# 配置下发验证比对报告\n',
+        f'- 生成时间: {timestamp}',
+        f'- 预期配置: `{INTENDED_DIR}`',
+        f'- 采集配置: `{COLLECTED_DIR}`',
+        f'- 规则文件: `{RULES_PATH}`\n',
+    ]
 
     for dev_name, result in results:
         if isinstance(result, str):
-            # 错误信息（如未采集、解析失败）
-            lines.append(f'## {dev_name}')
-            lines.append(f'\n> {result}\n')
+            lines.append(f'## {dev_name}\n\n> {result}\n')
             continue
 
         model = result.get('model') or '未知型号'
@@ -1007,172 +533,135 @@ def generate_report(results, timestamp):
             lines.append('无差异\n')
             continue
 
-        for category in sorted(diffs.keys()):
-            diff = diffs[category]
-            lines.append(f'### {category}\n')
+        for cat in sorted(diffs.keys()):
+            d = diffs[cat]
+            lines.append(f'### {cat}\n')
 
-            # --- 段落级缺失/多余（按子段头分组） ---
-            missing_headers = diff.get('missing_headers', {})
-            extra_headers = diff.get('extra_headers', {})
+            # 段落差异
+            for h in sorted(set(d.get('missing_headers', {}).keys())
+                            | set(d.get('extra_headers', {}).keys())):
+                lines.append(f'  - **{h}**')
+                for ml in d.get('missing_headers', {}).get(h, []):
+                    lines.append(f'    - `[缺失] {ml}`')
+                for el in d.get('extra_headers', {}).get(h, []):
+                    lines.append(f'    - `[多余] {el}`')
 
-            for header in sorted(set(list(missing_headers.keys())
-                                     + list(extra_headers.keys()))):
-                lines.append(f'  - **{header}**')
-                for miss_line in missing_headers.get(header, []):
-                    lines.append(f'    - `[缺失] {miss_line}`')
-                for ext_line in extra_headers.get(header, []):
-                    lines.append(f'    - `[多余] {ext_line}`')
-
-            # --- 全局级缺失/多余 ---
-            missing_global = diff.get('missing', [])
-            extra_global = diff.get('extra', [])
-
-            # 缺失的段落（整段缺失）
-            missing_headers_only = [h for h in missing_headers.keys()
-                                    if h not in extra_headers]
-            if missing_headers_only:
-                lines.append(f'- 缺失 {len(missing_headers_only)}个:')
-                for h in sorted(missing_headers_only):
-                    lines.append(f'  - `{h}`')
-
-            extra_headers_only = [h for h in extra_headers.keys()
-                                  if h not in missing_headers]
-            if extra_headers_only:
-                lines.append(f'- 多余 {len(extra_headers_only)}个:')
-                for h in sorted(extra_headers_only):
-                    lines.append(f'  - `{h}`')
-
-            if missing_global:
-                lines.append(f'- 缺失 {len(missing_global)}项:')
-                for item in missing_global:
-                    lines.append(f'  - `{item}`')
-
-            if extra_global:
-                lines.append(f'- 多余 {len(extra_global)}项:')
-                for item in extra_global:
-                    lines.append(f'  - `{item}`')
+            # 全局差异
+            for ml in d.get('missing', []):
+                lines.append(f'  - `[缺失] {ml}`')
+            for el in d.get('extra', []):
+                lines.append(f'  - `[多余] {el}`')
 
             lines.append('')
 
-    # 最后对整个报告做脱敏处理
     return _mask_sensitive('\n'.join(lines))
 
 
 # ============================================================
-# 10. 主流程
+# 9. 主流程
 # ============================================================
 
+def process_one_device(dev_name, cfg_path, log_path, rules):
+    """
+    处理单台设备：解析 → 忽略 → 归一化 → 对比。
+    返回: (设备名, 结果dict 或 错误信息)
+    """
+    # 读取预期配置
+    cfg_text = _read_file(cfg_path)
+    if cfg_text is None:
+        return dev_name, '读取预期配置文件失败'
+
+    # 读取采集日志
+    log_text = _read_file(log_path)
+    if log_text is None:
+        return dev_name, '读取采集日志文件失败'
+
+    # 提取 current-configuration 段
+    collected_text = extract_collected_config(log_text)
+    if collected_text is None:
+        return dev_name, '未从采集日志中提取到配置段'
+
+    # 提取型号版本
+    model, version = extract_model_version(log_text)
+
+    sections_def = rules.get('sections', [])
+    ignore_rules = rules.get('ignore', {})
+
+    # 解析
+    intended = parse_config(cfg_text, sections_def)
+    collected = parse_config(collected_text, sections_def)
+
+    # 忽略
+    intended = apply_ignore(intended, ignore_rules, model, version)
+    collected = apply_ignore(collected, ignore_rules, model, version)
+
+    # 密码归一化
+    intended = normalize_passwords(intended)
+    collected = normalize_passwords(collected)
+
+    # 对比
+    diff = compare_configs(intended, collected, model, version)
+
+    return dev_name, diff
+
+
 def main():
-    """
-    主入口。
-    1. 加载规则
-    2. 匹配设备
-    3. 逐个设备对比
-    4. 输出报告
-    """
+    """主入口"""
     print('=' * 50)
-    print('配置下发验证比对工具')
+    print('配置下发验证比对工具 v2')
     print('=' * 50)
 
-    # 1. 加载规则
-    print(f'\n[1/4] 加载规则文件: {RULES_PATH}')
+    # 加载规则
+    print(f'\n[1/4] 加载规则: {RULES_PATH}')
     rules = load_rules(RULES_PATH)
-    print(f'  → 段落拆分规则: {len(rules.get("split_sections", []))} 条')
-    print(f'  → 分类规则: {len(rules.get("section_categories", {}))} 条')
+    secs = rules.get('sections', [])
+    for s in secs:
+        print(f'  → 段落: {s["name"]} ({s["regex"][:40]}...)')
+    ig = rules.get('ignore', {})
+    print(f'  → 忽略规则: global {len(ig.get("global", []))} 条, '
+          f'sections {len(ig.get("sections", []))} 组')
 
-    # 2. 设备配对
+    # 设备配对
     print(f'\n[2/4] 设备配对')
-    print(f'  → 预期配置目录: {INTENDED_DIR}')
-    print(f'  → 采集配置目录: {COLLECTED_DIR}')
-
-    matched, only_intended, only_collected = match_devices(
-        INTENDED_DIR, COLLECTED_DIR
-    )
-
-    print(f'  → 匹配成功: {len(matched)} 台')
+    matched, only_intended, only_collected = match_devices(INTENDED_DIR, COLLECTED_DIR)
+    print(f'  → 匹配: {len(matched)} 台')
     if only_intended:
-        print(f'  → 仅预期有、未采集: {len(only_intended)} 台')
-        for path in only_intended:
-            print(f'    - {os.path.basename(path)}')
+        print(f'  → 仅预期有（未采集）: {len(only_intended)} 台')
     if only_collected:
-        print(f'  → 仅采集有、无预期: {len(only_collected)} 台')
-        for path in only_collected:
-            print(f'    - {os.path.basename(path)}')
+        print(f'  → 仅采集有（无预期）: {len(only_collected)} 台')
 
     if not matched:
-        print('\n[结果] 没有匹配的设备，无需比对。')
+        print('\n没有匹配的设备，退出。')
         return
 
-    # 3. 逐个设备对比
+    # 逐台对比
     print(f'\n[3/4] 开始比对 {len(matched)} 台设备...')
-
     results = []
     for idx, (dev_name, cfg_path, log_path) in enumerate(matched, 1):
         print(f'  [{idx}/{len(matched)}] {dev_name}...', end=' ', flush=True)
+        name, result = process_one_device(dev_name, cfg_path, log_path, rules)
+        if isinstance(result, str):
+            print(f'❌ {result}')
+        else:
+            diff_count = sum(
+                len(v.get('missing', [])) + len(v.get('extra', []))
+                + sum(len(x) for x in v.get('missing_headers', {}).values())
+                + sum(len(x) for x in v.get('extra_headers', {}).values())
+                for v in result.get('diffs', {}).values()
+            )
+            print(f'{diff_count} 处差异')
+        results.append((name, result))
 
-        # 读取预期配置
-        cfg_text = _read_file(cfg_path)
-        if cfg_text is None:
-            print('❌ 读取预期配置失败')
-            results.append((dev_name, '读取预期配置文件失败'))
-            continue
-
-        # 读取采集日志
-        log_text = _read_file(log_path)
-        if log_text is None:
-            print('❌ 读取采集日志失败')
-            results.append((dev_name, '读取采集日志文件失败'))
-            continue
-
-        # 提取 current-configuration 段
-        collected_config = extract_collected_config(log_text)
-        if collected_config is None:
-            print('❌ 未找到 current-configuration 段')
-            results.append((dev_name, '未从采集日志中提取到配置段'))
-            continue
-
-        # 提取型号版本（从 display version 输出段）
-        model, version = extract_model_version(log_text)
-
-        # 解析
-        intended_blocks = parse_blocks(cfg_text)
-        collected_blocks = parse_blocks(collected_config)
-
-        print(f'分块{len(intended_blocks)}/{len(collected_blocks)}...', end=' ')
-
-        intended_parsed = process_blocks(intended_blocks, rules)
-        collected_parsed = process_blocks(collected_blocks, rules)
-
-        # 清洗
-        intended_clean = clean_blocks(intended_parsed, rules, 'intended')
-        collected_clean = clean_blocks(collected_parsed, rules, 'collected')
-
-        # 对比
-        diff_result = compare_configs(intended_clean, collected_clean,
-                                      model=model, version=version)
-
-        total_diffs = sum(len(v) for v in diff_result.get('diffs', {}).values())
-        print(f'差异{total_diffs}项 ✅')
-        results.append((dev_name, diff_result))
-
-    # 4. 输出报告
+    # 输出报告
     print(f'\n[4/4] 生成报告...')
-
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    report_text = generate_report(results, timestamp)
-
-    # 写入文件
+    ts = datetime.now().strftime('%Y-%m-%d_%H%M%S')
+    report = generate_report(results, ts)
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    report_filename = f'配置比对报告_{timestamp}.md'
-    report_path = os.path.join(OUTPUT_DIR, report_filename)
-
+    report_path = os.path.join(OUTPUT_DIR, f'compareResult_{ts}.md')
     with open(report_path, 'w', encoding='utf-8') as f:
-        f.write(report_text)
-
-    print(f'  → 报告已保存: {report_path}')
-    print(f'\n{"=" * 50}')
-    print(f'比对完成! 共 {len(matched)} 台设备, {sum(1 for _, r in results if isinstance(r, dict) and r.get("diffs"))} 台有差异')
-    print(f'{"=" * 50}')
+        f.write(report)
+    print(f'  报告已保存: {report_path}')
+    print('完成。')
 
 
 if __name__ == '__main__':
