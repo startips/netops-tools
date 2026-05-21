@@ -66,28 +66,46 @@ def _dev_name_from_cfg(filename):
     return filename.replace('.cfg', '')
 
 
-def _dev_name_from_log(filename):
-    """从 IP_设备名.log 提取设备名"""
+def _dev_name_from_log(filename, cfg_names):
+    """
+    从 .log 文件名提取设备名，两级匹配。
+
+    .log 文件名格式通常为「管理IP_设备名.log」，但可能有例外。
+    1. 先用去掉 .log 的完整文件名匹配 cfg 名
+    2. 匹配不到则用正则去掉「IP地址_」前缀后再匹配
+    """
     name = filename.replace('.log', '')
-    parts = name.split('_', 1)
-    return parts[1] if len(parts) > 1 else parts[0]
+    # 第一级：完整文件名匹配
+    if name in cfg_names:
+        return name
+    # 第二级：去掉 IP 前缀（匹配 x.x.x.x_ 格式）
+    m = re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}_(.+)', name)
+    if m and m.group(1) in cfg_names:
+        return m.group(1)
+    # 都匹配不到，返回去掉 IP 前缀的结果（后续配对会归入 only_collected）
+    return m.group(1) if m else name
 
 
 def match_devices(intended_dir, collected_dir):
     """将 config_intended/*.cfg 与 config/*.log 按设备名配对"""
+    # 先扫预期目录，建立 cfg 名集合
     intended_files = {}
-    collected_files = {}
-
     if os.path.isdir(intended_dir):
         for f in os.listdir(intended_dir):
             if f.endswith('.cfg') and not f.startswith('.'):
                 intended_files[_dev_name_from_cfg(f)] = os.path.join(intended_dir, f)
 
+    cfg_names = set(intended_files.keys())
+
+    # 扫采集目录，用两级匹配提取设备名
+    collected_files = {}
     if os.path.isdir(collected_dir):
         for f in os.listdir(collected_dir):
             if f.endswith('.log') and not f.startswith('.'):
-                collected_files[_dev_name_from_log(f)] = os.path.join(collected_dir, f)
+                dev_name = _dev_name_from_log(f, cfg_names)
+                collected_files[dev_name] = os.path.join(collected_dir, f)
 
+    # 取并集，分类
     all_devices = set(intended_files.keys()) | set(collected_files.keys())
     matched, only_intended, only_collected = [], [], []
 
@@ -360,13 +378,17 @@ def normalize_passwords(config_data):
 
     Huawei 每次 display 加密结果可能不同，但配置功能相同。
     """
+
     def _norm(line):
         # password irreversible-cipher <密文>
         line = re.sub(r'(password\s+irreversible-cipher\s+)\S+', r'\1<密文>', line)
         # snmp-agent community read cipher <密文>
-        line = re.sub(r'(snmp-agent\s+community\s+read\s+cipher\s+)\S+', r'\1<密文>', line)
-        # set authentication password cipher <密文>
+        line = re.sub(r'(snmp-agent\s+community\s+read\s+cipher\s+)\S+\s+mib-view\s+iso-view(?:\s+alias\s+\S+)?',
+                      r'\1<密文>', line)
+        # set authentication password cipher <密文>set authentication password cipher
         line = re.sub(r'(set\s+authentication\s+password\s+cipher\s+)\S+', r'\1<密文>', line)
+        # mlag
+        line = re.sub(r'(authentication-mode hmac-sha256 password\s+)\S+', r'\1<密文>', line)
         return line
 
     result = {'global': [], 'sections': {}}
@@ -519,23 +541,83 @@ def generate_report(results, timestamp):
         f'- 规则文件: `{RULES_PATH}`\n',
     ]
 
+    # ======== 总览 ========
+    total_devices = len(results)
+    error_devices = [r for r in results if isinstance(r[1], str)]
+    ok_devices = [r for r in results if not isinstance(r[1], str)]
+
+    # 统计差异
+    total_diffs = 0
+    zero_diff = 0
+    summary_rows = []
+    for dev_name, result in ok_devices:
+        diffs = result.get('diffs', {})
+        count = sum(
+            len(v.get('missing', [])) + len(v.get('extra', []))
+            + sum(len(x) for x in v.get('missing_headers', {}).values())
+            + sum(len(x) for x in v.get('extra_headers', {}).values())
+            for v in diffs.values()
+        )
+        total_diffs += count
+        if count == 0:
+            zero_diff += 1
+        model = result.get('model') or '-'
+        version = result.get('version') or '-'
+        summary_rows.append((dev_name, model, version, count))
+
+    lines.append('## 总览\n')
+    lines.append(f'| 项目 | 数量 |')
+    lines.append(f'|------|------|')
+    lines.append(f'| 比对设备 | {total_devices} 台 |')
+    lines.append(f'| 错误设备 | {len(error_devices)} 台 |')
+    lines.append(f'| 无差异 | {zero_diff} 台 |')
+    lines.append(f'| 有差异 | {len(ok_devices) - zero_diff} 台 |')
+    lines.append(f'| 差异总计 | {total_diffs} 处 |')
+    lines.append('')
+
+    if summary_rows:
+        lines.append(f'| 设备 | 型号 | 版本 | 差异 |')
+        lines.append(f'|------|------|------|------|')
+        for dev_name, model, version, count in summary_rows:
+            # 设备名太长截短
+            short_name = dev_name if len(dev_name) <= 35 else dev_name[:32] + '...'
+            lines.append(f'| {short_name} | {model} | {version} | {count} |')
+        lines.append('')
+
+    # 错误设备
+    if error_devices:
+        lines.append('### 错误设备\n')
+        for dev_name, err_msg in error_devices:
+            lines.append(f'- **{dev_name}**: {err_msg}')
+        lines.append('')
+
+    # ======== 详情 ========
+    lines.append('## 详情\n')
+
     for dev_name, result in results:
         if isinstance(result, str):
-            lines.append(f'## {dev_name}\n\n> {result}\n')
+            lines.append(f'### {dev_name}\n\n> {result}\n')
             continue
 
         model = result.get('model') or '未知型号'
         version = result.get('version') or '未知版本'
-        lines.append(f'## {dev_name}  [{model}]  [{version}]\n')
-
         diffs = result.get('diffs', {})
+
+        count = sum(
+            len(v.get('missing', [])) + len(v.get('extra', []))
+            + sum(len(x) for x in v.get('missing_headers', {}).values())
+            + sum(len(x) for x in v.get('extra_headers', {}).values())
+            for v in diffs.values()
+        )
+        lines.append(f'### {dev_name}  [{model}]  [{version}]  ({count} 处)\n')
+
         if not diffs:
             lines.append('无差异\n')
             continue
 
         for cat in sorted(diffs.keys()):
             d = diffs[cat]
-            lines.append(f'### {cat}\n')
+            lines.append(f'#### {cat}\n')
 
             # 段落差异
             for h in sorted(set(d.get('missing_headers', {}).keys())

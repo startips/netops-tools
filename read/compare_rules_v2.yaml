@@ -21,7 +21,7 @@
 # 一、需要拆分对比的段落
 # ============================================================
 # name:     分类名（报告里显示）
-# regex:    匹配完整段落的 Python 正则（用 [\s\S]*? 跨行 + 非贪婪）
+# regex:    匹配完整段落的 Python 正则（用 [\s\S]*?\n# 跨行到独立 # 行）
 # split_by: 段内拆分子段的正则
 #
 # 增加新类型：加一条即可
@@ -29,19 +29,19 @@
 
 sections:
   - name: '端口配置'
-    regex: 'interface [\s\S]*?#'
+    regex: 'interface (?!maximum-vty|con\b|vty\b)[\s\S]*?\n#'
     split_by: '^interface '
 
   - name: 'BGP配置'
-    regex: 'bgp \d+[\s\S]*?#'
+    regex: 'bgp \d+[\s\S]*?\n#'
     split_by: '^bgp \d+'
 
   - name: 'VPN实例配置'
-    regex: 'ip vpn-instance[\s\S]*?#'
+    regex: 'ip vpn-instance[\s\S]*?\n#'
     split_by: '^ip vpn-instance'
 
   - name: '用户界面配置'
-    regex: 'user-interface [\s\S]*?#'
+    regex: 'user-interface [\s\S]*?\n#'
     split_by: '^user-interface '
 
 # ============================================================
@@ -56,16 +56,18 @@ ignore:
   global:
     - '^\s*#\s*$'               # # 分隔行
     - '^\s*$'                    # 空白行
-    - '^!'                      # 配置的开头
-    - '^return$'                #配置结束符
+    - '^!.*'                      # 配置的开头
+    - '^return$'                # 配置结束符
     - '^snmp-agent local-engineid' #自动生成snmp ID
+    - '^\|\s*no\s*$'             # display | no 残留
+    - '^device board'    #设备自动生成的 例如
 
   sections:
     # --- 端口配置 ---
     - header_pattern: '^interface '
       lines:
         - '^shutdown$'
-        - 'device transceiver'
+        - '^device transceiver'
 
     # --- BGP配置 ---
     - header_pattern: '^bgp '
