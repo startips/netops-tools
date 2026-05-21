@@ -150,8 +150,8 @@ def start_action():  # windows功能入口
         '程序功能如下：\n'
         '1.在线配置检查（根据keyWords.txt里的关键字）\n'
         '2.采集配置文件检查\n'
-        '3.下发配置\n'
-        '4.配置下发验证比对（预期 vs 采集）')
+        '3.下发配置\n')
+        #'4.配置下发验证比对（预期 vs 采集）')
     while True:
         if 'Linux' in platform.system():
             import sys
