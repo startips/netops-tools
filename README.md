@@ -16,18 +16,19 @@
 ```
 mywork_script/
 ├── main.py                    # 入口，功能菜单
-├── cfgCheck.py                # 离线配置合规检查（33 项检查项）
+├── cfgCheck.py                # 离线配置合规检查（12 项检查项）
 ├── compare_configs.py         # 配置下发验证比对 v2
 ├── checkConfig.py             # 在线配置检查
 ├── sendCmd.py                 # 命令下发
 ├── interface/
-│   ├── check_items.py         # 检查项 & 15 种设备类型配置表
+│   ├── check_items.py         # 检查项配置加载器（读取 YAML）
 │   ├── connection.py          # SSH/Telnet 连接、Excel 读写、线程池
 │   ├── public_env.py          # 全局变量管理
 │   └── bitFunctions.py        # 网段计算
 ├── read/
 │   ├── config/                # 采集配置 (.log)
 │   ├── config_intended/       # 预期配置 (.cfg)
+│   ├── check_items.yaml       # 检查项 & 设备类型配置（直接编辑）
 │   ├── compare_rules_v2.yaml  # 比对规则（段落定义 + 忽略规则）
 │   ├── keyWords.txt           # 在线检查关键字
 │   ├── 版本补丁.xlsx          # 版本补丁推荐对照表
