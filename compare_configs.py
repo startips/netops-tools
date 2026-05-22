@@ -742,21 +742,24 @@ def main():
 
     # 逐台对比
     print(f'\n[3/4] 开始比对 {len(matched)} 台设备...')
+    from alive_progress import alive_bar
     results = []
-    for idx, (dev_name, cfg_path, log_path) in enumerate(matched, 1):
-        print(f'  [{idx}/{len(matched)}] {dev_name}...', end=' ', flush=True)
-        name, result = process_one_device(dev_name, cfg_path, log_path, rules)
-        if isinstance(result, str):
-            print(f'❌ {result}')
-        else:
-            diff_count = sum(
-                len(v.get('missing', [])) + len(v.get('extra', []))
-                + sum(len(x) for x in v.get('missing_headers', {}).values())
-                + sum(len(x) for x in v.get('extra_headers', {}).values())
-                for v in result.get('diffs', {}).values()
-            )
-            print(f'{diff_count} 处差异')
-        results.append((name, result))
+    with alive_bar(title='比对进度', bar='filling', spinner='waves2',
+                   total=len(matched), receipt=False) as bar:
+        for dev_name, cfg_path, log_path in matched:
+            name, result = process_one_device(dev_name, cfg_path, log_path, rules)
+            if isinstance(result, str):
+                bar.text = f'❌ {name}: {result}'
+            else:
+                diff_count = sum(
+                    len(v.get('missing', [])) + len(v.get('extra', []))
+                    + sum(len(x) for x in v.get('missing_headers', {}).values())
+                    + sum(len(x) for x in v.get('extra_headers', {}).values())
+                    for v in result.get('diffs', {}).values()
+                )
+                bar.text = f'✅ {name}: {diff_count} 处差异'
+            results.append((name, result))
+            bar()
 
     # 输出报告
     print(f'\n[4/4] 生成报告...')
