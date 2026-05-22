@@ -1,0 +1,57 @@
+# ============================================================
+# 检查项 & 设备类型配置
+# ============================================================
+# 修改方式：
+#   - 增检查项：check_items 加名字 + 要检查的设备类型里加一行
+#   - 增设备类型：device_types 加一组 + device_patterns 加匹配规则
+# ============================================================
+
+# 所有检查项名称（固定顺序）
+check_items:
+  - 版本
+  - 补丁
+  - 设备Esn
+  - 多余文件检查
+  - 硬件状态检查
+  - 未关闭端口
+  - bgp邻居状态
+  - feature-software状态
+  - 失败命令配置检查
+  - mlag状态
+  - hash配置
+  - 告警检查
+
+# 设备类型配置（列出需要检查的项，其余自动为 0）
+device_types:
+  Spine: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, hash配置, 告警检查]
+  Leaf: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, mlag状态, 告警检查]
+  Slf: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, mlag状态, 告警检查]
+  La: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, mlag状态, 告警检查]
+  Pl: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, hash配置, 告警检查]
+  Podlc: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, hash配置, 告警检查]
+  Gwlc: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, hash配置, 告警检查]
+  Agg: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, hash配置, 告警检查]
+  Nfvl: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, hash配置, 告警检查]
+  Nfvw: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, hash配置, 告警检查]
+  Wc: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, hash配置, 告警检查]
+  Fw: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, 失败命令配置检查, 设备Esn, 告警检查]
+  S0: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, 告警检查]
+  ObAcc: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, 告警检查]
+  Other: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, 告警检查]
+
+# 设备名匹配规则（正则 → 设备类型，按优先级从高到低）
+device_patterns:
+  - ['-S_(A|B|C|D)', Spine]
+  - ['-LF\d+_(A|B|C|D)', Leaf]
+  - ['-SLF\d+_(A|B|C|D)', Slf]
+  - ['-LA\d+_(A|B|C|D)', La]
+  - ['-PL_(A|B|C|D)', Pl]
+  - ['-PODLC_(A|B|C|D)', Podlc]
+  - ['-GWLC_(A|B|C|D)', Gwlc]
+  - ['-AGG_(A|B|C|D)', Agg]
+  - ['-NFVL\d*_(A|B|C|D)', Nfvl]
+  - ['-NFVW\d*_(A|B|C|D)', Nfvw]
+  - ['-WC_(A|B|C|D)', Wc]
+  - ['-FW\d*_(A|B|C|D)', Fw]
+  - ['-SS_(A|B|C|D)', S0]
+  - ['OBN.*?ACC', ObAcc]
