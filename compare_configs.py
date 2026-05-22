@@ -17,7 +17,6 @@ compare_configs.py — 配置下发验证比对工具 v2
 
 import os
 import re
-import time
 from datetime import datetime
 
 import yaml
@@ -278,24 +277,39 @@ def _match_model_version(rule, model, version):
     """
     判断规则是否匹配当前设备的型号/版本。
 
-    规则可含可选的 model / version 字段，子串匹配，AND 关系。
-    无 model/version → 匹配所有设备。
+    规则通过 models 字段指定型号+版本条件：
+    - 列表内每对 model+version 是 AND 关系
+    - 列表项之间是 OR 关系
+    - 无 models 字段 → 匹配所有设备
+    - entry 中只写 model 不写 version → 只匹配型号
+    - entry 中只写 version 不写 model → 只匹配版本
+
+    YAML 示例：
+        - pattern: 'xxx'
+          models:
+            - model: 'CE6881'
+              version: 'V200R024'
+            - model: 'S5731'
+              version: 'V200R023'
     """
     if not isinstance(rule, dict):
         return True  # 纯字符串规则，无条件
 
-    rm = rule.get('model')
-    rv = rule.get('version')
-    if rm is None and rv is None:
-        return True
+    models_list = rule.get('models')
+    if not models_list:
+        return True  # 无 models 字段，匹配所有设备
 
-    if rm is not None:
-        if model is None or rm not in model:
-            return False
-    if rv is not None:
-        if version is None or rv not in version:
-            return False
-    return True
+    for entry in models_list:
+        if not isinstance(entry, dict):
+            continue
+        rm = entry.get('model')
+        rv = entry.get('version')
+        if rm is not None and (model is None or rm not in model):
+            continue  # model 不匹配，试下一个
+        if rv is not None and (version is None or rv not in version):
+            continue  # version 不匹配，试下一个
+        return True  # 当前 entry 命中
+    return False  # 所有 entry 都没命中
 
 
 def _compile_global_ignores(global_rules, model, version):

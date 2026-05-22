@@ -10,11 +10,19 @@
 # 4. 全局和每个子段分别做集合差集
 #
 # === 型号/版本过滤 ===
-# ignore 下每条规则支持可选的 model / version 字段（子串匹配，AND 关系）
+# ignore 下每条规则支持可选的 models 字段（子串匹配）
+#   models 列表内每对 model+version 是 AND，列表项之间是 OR
+#   不写 models 字段 → 该规则对所有设备生效
+#   entry 中只写 model 不写 version → 只匹配型号
+#   entry 中只写 version 不写 model → 只匹配版本
+#
 #   写法示例：
-#     - '^plain rule'
 #     - pattern: '^typed rule'
-#       model: 'CE6881'
+#       models:
+#         - model: 'CE6881'
+#           version: 'V200R024'
+#         - model: 'S5731'
+#           version: 'V200R023'
 # ============================================================
 
 # ============================================================
@@ -37,12 +45,20 @@ settings:
 
 sections:
   - name: '端口配置'
-    regex: 'interface (?!maximum-vty|con\b|vty\b)[\s\S]*?\n#'
+    regex: 'interface (?:MEth|Eth-Trunk|\S+GE|LoopBack|NULL)[\s\S]*?\n#'
     split_by: '^interface '
 
   - name: 'BGP配置'
-    regex: 'bgp \d+[\s\S]*?\n#'
+    regex: 'bgp \d+[\s\S]*?#'
     split_by: '^bgp \d+'
+
+  - name: 'ipv4-family单播'
+    regex: 'ipv4-family unicast[\s\S]*?#'
+    split_by: '^ipv4-family unicast'
+
+  - name: 'ipv4-family实例'
+    regex: 'ipv4-family vpn-instance[\s\S]*?#'
+    split_by: '^ipv4-family vpn-instance'
 
   - name: 'VPN实例配置'
     regex: 'ip vpn-instance[\s\S]*?\n#'
@@ -79,5 +95,17 @@ ignore:
 
     # --- BGP配置 ---
     - header_pattern: '^bgp '
+      models:
+        - model: 'CE6856'
+          version: 'V200R019'
       lines:
         - 'undo private-4-byte-as enable'
+
+    - header_pattern: '^user-interface '
+      models:
+        - model: 'S5731'
+          version: 'V200R024'
+        - model: 'S5720'
+          version: 'V200R019'
+      lines:
+        - '^protocol inbound ssh'
