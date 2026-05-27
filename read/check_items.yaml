@@ -20,24 +20,41 @@ check_items:
   - mlag状态
   - hash配置
   - 告警检查
+  - 线路检查
 
 # 设备类型配置（列出需要检查的项，其余自动为 0）
 device_types:
-  Spine: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, hash配置, 告警检查]
-  Leaf: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, mlag状态, 告警检查]
-  Slf: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, mlag状态, 告警检查]
-  La: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, mlag状态, 告警检查]
-  Pl: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, hash配置, 告警检查]
-  Podlc: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, hash配置, 告警检查]
-  Gwlc: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, hash配置, 告警检查]
-  Agg: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, hash配置, 告警检查]
-  Nfvl: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, hash配置, 告警检查]
-  Nfvw: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, hash配置, 告警检查]
-  Wc: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, hash配置, 告警检查]
-  Fw: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, 失败命令配置检查, 设备Esn, 告警检查]
-  S0: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, 告警检查]
-  ObAcc: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, 告警检查]
-  Other: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, 告警检查]
+  Spine: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, hash配置, 告警检查, 线路检查]
+  Leaf: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, mlag状态, 告警检查, 线路检查]
+  Slf: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, mlag状态, 告警检查, 线路检查]
+  La: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, mlag状态, 告警检查, 线路检查]
+  Pl: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, hash配置, 告警检查, 线路检查]
+  Podlc: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, hash配置, 告警检查, 线路检查]
+  Gwlc: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, hash配置, 告警检查, 线路检查]
+  Agg: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, hash配置, 告警检查, 线路检查]
+  Nfvl: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, hash配置, 告警检查, 线路检查]
+  Nfvw: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, hash配置, 告警检查, 线路检查]
+  Wc: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, hash配置, 告警检查, 线路检查]
+  Fw: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, 失败命令配置检查, 设备Esn, 告警检查, 线路检查]
+  S0: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, 告警检查, 线路检查]
+  ObAcc: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, 告警检查, 线路检查]
+  Other: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, 告警检查, 线路检查]
+
+
+# 线路检查配置
+cable_check:
+  # 按接口名正则排除（逻辑口/不需要检查的口）
+  exclude_interfaces:
+    - '^Eth-Trunk'
+    - '^LoopBack'
+    - '^MEth'
+    - '^NULL'
+    - '^Vlanif'
+  # PHY状态为以下值的端口排除（LLDP不会有邻居）
+  exclude_phy:
+    - 'down'
+    - '*down'
+    - 'down(ed)'
 
 # 设备名匹配规则（正则 → 设备类型，按优先级从高到低）
 device_patterns:
@@ -55,3 +72,4 @@ device_patterns:
   - ['-FW\d*_(A|B|C|D)', Fw]
   - ['-SS_(A|B|C|D)', S0]
   - ['OBN.*?ACC', ObAcc]
+

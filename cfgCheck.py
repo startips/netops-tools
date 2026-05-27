@@ -432,7 +432,7 @@ def _check_alarm_active(fileTxt, checkItems):
 
 # 接口名前缀正则（用于匹配 description 和 LLDP 中的接口名）
 _IFACE_RE = re.compile(
-    r'(?:\d+GE|XGE|GE|XGigabitEthernet|GigabitEthernet|Eth-Trunk|MEth|LoopBack|NULL|Vlanif)\S+',
+    r'(?:\d+GE|XGigabitEthernet|GigabitEthernet|XGE|GE|Eth-Trunk|MEth|LoopBack|NULL|Vlanif)\S+',
     re.IGNORECASE
 )
 
@@ -475,7 +475,7 @@ def _parse_description_section(fileTxt):
             continue
 
         # 检查是否是新的接口行（行首有接口名）
-        m = re.match(r'\s*((?:\d+GE|XGE|GE|XGigabitEthernet|GigabitEthernet|'
+        m = re.match(r'\s*((?:\d+GE|XGigabitEthernet|GigabitEthernet|XGE|GE|'
                      r'Eth-Trunk|MEth|LoopBack|NULL|Vlanif)\S+)\s+'
                      r'(\S+)\s+(\S+)\s*(.*)', line, re.IGNORECASE)
         if m:
@@ -618,7 +618,7 @@ def _check_cable(fileTxt, checkItems):
     返回：
         '通过'          — 所有有描述的端口与 LLDP 一致
         '未匹配到'      — 没有找到 description 或 LLDP 段
-        str             — 问题列表，分号分隔
+        str             — 问题列表，每行一条
     """
     descriptions = _parse_description_section(fileTxt)
     if not descriptions:

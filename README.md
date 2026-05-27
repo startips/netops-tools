@@ -16,7 +16,7 @@
 ```
 mywork_script/
 ├── main.py                    # 入口，功能菜单
-├── cfgCheck.py                # 离线配置合规检查（12 项检查项）
+├── cfgCheck.py                # 离线配置合规检查（13 项检查项）
 ├── compare_configs.py         # 配置下发验证比对 v2
 ├── checkConfig.py             # 在线配置检查
 ├── sendCmd.py                 # 命令下发
@@ -72,3 +72,12 @@ cd mywork_script
 加载规则 → 设备配对 → 正则提取段落
 → 忽略过滤 → 密码归一化 → 集合差集对比 → Markdown 报告
 ```
+
+## 线路检查（功能2第13项）
+
+对比 `display interface description`（期望）与 `display lldp neighbor brief`（实际），检测线路接错。
+
+排除规则在 `read/check_items.yaml` 的 `cable_check` 中配置：
+- `exclude_interfaces` — 按接口名正则排除（逻辑口等）
+- `exclude_phy` — 按 PHY 状态排除（down 端口）
+- 无描述的端口不检查
