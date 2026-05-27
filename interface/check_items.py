@@ -1,12 +1,13 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 """
-检查项 & 设备类型配置 — 从 read/check_items.yaml 加载
+检查项 & 设备类型配置 — 懒加载 read/check_items.yaml
 
 导出（与原 check_items.py 接口一致）：
     CHECK_ITEM_NAMES      — 检查项名称元组
     DEVICE_TYPE_CONFIGS   — {类型名: {检查项: 0/1}}
-    DEVICE_TYPE_PATTERNS  — ((compiled_regex, 类型名), ...)
+    DEVICE_TYPE_PATTERNS  — ((regex_string, 类型名), ...)
+    CABLE_CHECK_CONFIG    — 线路检查排除规则
 """
 
 import os
@@ -14,7 +15,7 @@ import sys
 import yaml
 
 # ============================================================
-# 加载 YAML（兼容 PyInstaller 打包）
+# 路径解析（兼容 PyInstaller 打包）
 # ============================================================
 
 if getattr(sys, 'frozen', False):
@@ -24,47 +25,66 @@ else:
 
 _yaml_path = os.path.join(_base_dir, 'read', 'check_items.yaml')
 
-with open(_yaml_path, 'r', encoding='utf-8') as _f:
-    _data = yaml.safe_load(_f)
-
 # ============================================================
-# CHECK_ITEM_NAMES — 检查项名称元组（固定顺序）
+# 懒加载：首次访问导出名时才读 YAML
 # ============================================================
 
-CHECK_ITEM_NAMES = tuple(_data['check_items'])
+_data = None
+_loaded = False
 
 
-# ============================================================
-# 工厂函数：根据启用项列表生成完整 0/1 字典
-# ============================================================
+def _ensure_loaded():
+    global _data, _loaded
+    if _loaded:
+        return
+    with open(_yaml_path, 'r', encoding='utf-8') as f:
+        _data = yaml.safe_load(f)
+    _loaded = True
 
-def _make_check_option(*enabled_items):
+
+def _make_check_option(check_items, *enabled_items):
     enabled = set(enabled_items)
-    return {name: (1 if name in enabled else 0) for name in CHECK_ITEM_NAMES}
+    return {name: (1 if name in enabled else 0) for name in check_items}
 
 
-# ============================================================
-# DEVICE_TYPE_CONFIGS — {类型名: {检查项: 0/1}}
-# ============================================================
-
-DEVICE_TYPE_CONFIGS = {
-    type_name: _make_check_option(*items)
-    for type_name, items in _data['device_types'].items()
+# 需要懒加载的导出名 → 在 _data 中的构建逻辑
+_EXPORTS = {
+    'CHECK_ITEM_NAMES',
+    'DEVICE_TYPE_CONFIGS',
+    'DEVICE_TYPE_PATTERNS',
+    'CABLE_CHECK_CONFIG',
 }
 
-
-# ============================================================
-# DEVICE_TYPE_PATTERNS — ((regex_string, 类型名), ...)
-# ============================================================
-
-DEVICE_TYPE_PATTERNS = tuple(
-    (pattern, type_name)
-    for pattern, type_name in _data['device_patterns']
-)
+# 缓存已构建的值
+_cache = {}
 
 
-# ============================================================
-# CABLE_CHECK_CONFIG — 线路检查排除规则
-# ============================================================
+def __getattr__(name):
+    if name not in _EXPORTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
-CABLE_CHECK_CONFIG = _data.get('cable_check', {})
+    if name in _cache:
+        return _cache[name]
+
+    _ensure_loaded()
+
+    if name == 'CHECK_ITEM_NAMES':
+        val = tuple(_data['check_items'])
+    elif name == 'DEVICE_TYPE_CONFIGS':
+        names = tuple(_data['check_items'])
+        val = {
+            type_name: _make_check_option(names, *items)
+            for type_name, items in _data['device_types'].items()
+        }
+    elif name == 'DEVICE_TYPE_PATTERNS':
+        val = tuple(
+            (pattern, type_name)
+            for pattern, type_name in _data['device_patterns']
+        )
+    elif name == 'CABLE_CHECK_CONFIG':
+        val = _data.get('cable_check', {})
+    else:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    _cache[name] = val
+    return val
