@@ -16,12 +16,11 @@
 ```
 mywork_script/
 ├── main.py                    # 入口，功能菜单
-├── cfgCheck.py                # 离线配置合规检查（13 项检查项）
+├── cfgCheck.py                # 离线配置合规检查（13 项，直接读 check_items.yaml）
 ├── compare_configs.py         # 配置下发验证比对 v2
 ├── checkConfig.py             # 在线配置检查
 ├── sendCmd.py                 # 命令下发
 ├── interface/
-│   ├── check_items.py         # 检查项配置加载器（读取 YAML）
 │   ├── connection.py          # SSH/Telnet 连接、Excel 读写、线程池
 │   ├── public_env.py          # 全局变量管理
 │   └── bitFunctions.py        # 网段计算

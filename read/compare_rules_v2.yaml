@@ -84,14 +84,15 @@ ignore:
     - '^return$'                 # 配置结束符
     - '^snmp-agent local-engineid' #自动生成snmp ID
     - '^\|\s*no\s*$'             # display | no 残留
-    - '^device board'    #设备自动生成的 例如
+    - '^device board'    #设备自动生成
+    - '^device card'     #设备自动生成
 
   sections:
     # --- 端口配置 ---
     - header_pattern: '^interface '
       lines:
         - '^shutdown$'
-        - '^device transceiver'
+        - '^device transceiver' #插光模块会出现的配置
 
     # --- BGP配置 ---
     - header_pattern: '^bgp '

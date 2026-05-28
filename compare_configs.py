@@ -466,6 +466,19 @@ def _ssh_cipher_diff(i_lines, a_lines):
 # 7. 对比
 # ============================================================
 
+def _ci_diff(expected, actual):
+    """
+    忽略大小写的集合差集，保留原始大小写用于报告。
+
+    返回: (missing列表, extra列表)
+    """
+    exp_map = {l.lower(): l for l in expected}
+    act_map = {l.lower(): l for l in actual}
+    missing = sorted(exp_map[k] for k in set(exp_map) - set(act_map))
+    extra = sorted(act_map[k] for k in set(act_map) - set(exp_map))
+    return missing, extra
+
+
 def compare_configs(intended, actual, model=None, version=None):
     """
     对比预期和实际配置，逐段做集合差集。
@@ -483,18 +496,26 @@ def compare_configs(intended, actual, model=None, version=None):
     for cat in sorted(all_cats):
         cat_diffs = {}
 
-        # --- 段落比较 ---
+        # --- 段落比较（标题忽略大小写） ---
         i_sub = intended.get('sections', {}).get(cat, {})
         a_sub = actual.get('sections', {}).get(cat, {})
-        all_headers = set(i_sub.keys()) | set(a_sub.keys())
+
+        # 建立 lowercase header → 原始 header 的映射
+        i_header_map = {h.lower(): h for h in i_sub}
+        a_header_map = {h.lower(): h for h in a_sub}
+        all_headers = set(i_header_map) | set(a_header_map)
 
         missing_h = {}
         extra_h = {}
-        for h in sorted(all_headers):
-            i_lines = set(i_sub.get(h, []))
-            a_lines = set(a_sub.get(h, []))
-            miss = sorted(i_lines - a_lines)
-            extr = sorted(a_lines - i_lines)
+        for lh in sorted(all_headers):
+            i_h = i_header_map.get(lh)
+            a_h = a_header_map.get(lh)
+            miss, extr = _ci_diff(
+                i_sub.get(i_h, []) if i_h else [],
+                a_sub.get(a_h, []) if a_h else []
+            )
+            # 用预期的标题名，没有则用实际的
+            h = i_h or a_h
             if miss:
                 missing_h[h] = miss
             if extr:
@@ -515,12 +536,13 @@ def compare_configs(intended, actual, model=None, version=None):
     # SSH cipher 无序比较
     ssh_missing, ssh_extra = _ssh_cipher_diff(i_global, a_global)
 
-    # 其余行集合差集
-    i_rest = set(l for l in i_global if not _parse_ssh_cipher_line(l))
-    a_rest = set(l for l in a_global if not _parse_ssh_cipher_line(l))
+    # 其余行集合差集（忽略大小写）
+    i_rest = [l for l in i_global if not _parse_ssh_cipher_line(l)]
+    a_rest = [l for l in a_global if not _parse_ssh_cipher_line(l)]
 
-    missing = sorted(i_rest - a_rest) + ssh_missing
-    extra = sorted(a_rest - i_rest) + ssh_extra
+    missing, extra = _ci_diff(i_rest, a_rest)
+    missing += ssh_missing
+    extra += ssh_extra
 
     if missing or extra:
         global_diffs = {}
