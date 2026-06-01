@@ -415,7 +415,7 @@ def _check_failed_commands(fileTxt, checkItems):
 
 def _check_esn(fileTxt, checkItems):
     """检查设备 ESN 序列号"""
-    esnInfo = re.search(r'ESN:\s*(\w+)', fileTxt, re.IGNORECASE)
+    esnInfo = re.search(r'ESN.*?:\s*(\w+)', fileTxt, re.IGNORECASE)
     return esnInfo.group(1) if esnInfo else '未匹配到'
 
 

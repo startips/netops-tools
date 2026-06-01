@@ -60,6 +60,10 @@ sections:
     regex: 'ipv4-family vpn-instance[\s\S]*?#'
     split_by: '^ipv4-family vpn-instance'
 
+  - name: 'ipv6-family实例'
+    regex: 'ipv6-family vpn-instance[\s\S]*?#'
+    split_by: '^ipv6-family vpn-instance'
+
   - name: 'VPN实例配置'
     regex: 'ip vpn-instance[\s\S]*?\n#'
     split_by: '^ip vpn-instance'
@@ -67,6 +71,10 @@ sections:
   - name: '用户界面配置'
     regex: 'user-interface [\s\S]*?\n#'
     split_by: '^user-interface '
+
+  - name: 'wlan配置'
+    regex: 'wlan[\s\S]*?\n#'
+    split_by: '^wlan'
 
 # ============================================================
 # 二、忽略规则（统一：预期和采集两侧同时过滤）
@@ -86,6 +94,8 @@ ignore:
     - '^\|\s*no\s*$'             # display | no 残留
     - '^device board'    #设备自动生成
     - '^device card'     #设备自动生成
+    - '^capwap dtls' #无线配置
+    - '^capwap unknown-unicast'#无线配置
 
   sections:
     # --- 端口配置 ---

@@ -67,13 +67,13 @@ def _dev_name_from_cfg(filename):
 
 def _dev_name_from_log(filename, cfg_names):
     """
-    从 .log 文件名提取设备名，两级匹配。
+    从采集文件名提取设备名，两级匹配。
 
-    .log 文件名格式通常为「管理IP_设备名.log」，但可能有例外。
-    1. 先用去掉 .log 的完整文件名匹配 cfg 名
+    文件名格式通常为「管理IP_设备名.log」或「设备名.txt」。
+    1. 先用去掉后缀的完整文件名匹配 cfg 名
     2. 匹配不到则用正则去掉「IP地址_」前缀后再匹配
     """
-    name = filename.replace('.log', '')
+    name = re.sub(r'\.(log|txt)$', '', filename)
     # 第一级：完整文件名匹配
     if name in cfg_names:
         return name
@@ -100,7 +100,7 @@ def match_devices(intended_dir, collected_dir):
     collected_files = {}
     if os.path.isdir(collected_dir):
         for f in os.listdir(collected_dir):
-            if f.endswith('.log') and not f.startswith('.'):
+            if f.endswith(('.log', '.txt')) and not f.startswith('.'):
                 dev_name = _dev_name_from_log(f, cfg_names)
                 collected_files[dev_name] = os.path.join(collected_dir, f)
 
@@ -671,6 +671,92 @@ def generate_report(results, timestamp):
                 lines.append(f'  - `[多余] {el}`')
 
             lines.append('')
+
+    return _mask_sensitive('\n'.join(lines))
+
+
+def generate_txt_report(results, timestamp):
+    """生成纯文本报告（保留空格）"""
+    lines = []
+    lines.append('=' * 60)
+    lines.append('配置下发验证比对报告')
+    lines.append('=' * 60)
+    lines.append(f'生成时间: {timestamp}')
+    lines.append(f'预期配置: {INTENDED_DIR}')
+    lines.append(f'采集配置: {COLLECTED_DIR}')
+    lines.append(f'规则文件: {RULES_PATH}')
+    lines.append('')
+
+    # ======== 总览 ========
+    lines.append('-' * 60)
+    lines.append('总览')
+    lines.append('-' * 60)
+
+    error_devices = [r for r in results if isinstance(r[1], str)]
+    ok_devices = [r for r in results if not isinstance(r[1], str)]
+
+    for dev_name, result in results:
+        if isinstance(result, str):
+            lines.append(f'  {dev_name}: {result}')
+            continue
+        model = result.get('model') or '-'
+        version = result.get('version') or '-'
+        diffs = result.get('diffs', {})
+        count = sum(
+            len(v.get('missing', [])) + len(v.get('extra', []))
+            + sum(len(x) for x in v.get('missing_headers', {}).values())
+            + sum(len(x) for x in v.get('extra_headers', {}).values())
+            for v in diffs.values()
+        )
+        lines.append(f'  {dev_name}  [{model}]  [{version}]  差异: {count}')
+
+    lines.append('')
+
+    # ======== 详情 ========
+    lines.append('-' * 60)
+    lines.append('详情')
+    lines.append('-' * 60)
+
+    for dev_name, result in results:
+        if isinstance(result, str):
+            lines.append(f'\n--- {dev_name} ---')
+            lines.append(f'  异常: {result}')
+            continue
+
+        model = result.get('model') or '未知型号'
+        version = result.get('version') or '未知版本'
+        diffs = result.get('diffs', {})
+
+        count = sum(
+            len(v.get('missing', [])) + len(v.get('extra', []))
+            + sum(len(x) for x in v.get('missing_headers', {}).values())
+            + sum(len(x) for x in v.get('extra_headers', {}).values())
+            for v in diffs.values()
+        )
+        lines.append(f'\n--- {dev_name}  [{model}]  [{version}]  ({count} 处) ---')
+
+        if not diffs:
+            lines.append('  无差异')
+            continue
+
+        for cat in sorted(diffs.keys()):
+            d = diffs[cat]
+            lines.append(f'\n  {cat}')
+
+            # 段落差异
+            for h in sorted(set(d.get('missing_headers', {}).keys())
+                            | set(d.get('extra_headers', {}).keys())):
+                lines.append(f'    {h}')
+                for ml in d.get('missing_headers', {}).get(h, []):
+                    lines.append(f'      [缺失] {ml}')
+                for el in d.get('extra_headers', {}).get(h, []):
+                    lines.append(f'      [多余] {el}')
+
+            # 全局差异
+            for ml in d.get('missing', []):
+                lines.append(f'    [缺失] {ml}')
+            for el in d.get('extra', []):
+                lines.append(f'    [多余] {el}')
 
     return _mask_sensitive('\n'.join(lines))
 
