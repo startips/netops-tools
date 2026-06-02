@@ -155,7 +155,7 @@ def start_action():  # windows功能入口
         if functionSelect == '2':  # 配置检查+状态采集
             from cfgCheck import deviceCheck, get_check_title
             title = get_check_title()
-            savename = 'compareResult'
+            savename = '状态检查结果'
             data = funcAction1(oringinDataFormat(), savename, deviceCheck, 10)
             writeToExcel(savename, title, data)
             break

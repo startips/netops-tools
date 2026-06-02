@@ -874,7 +874,7 @@ def main():
     ts = datetime.now().strftime('%Y-%m-%d_%H%M%S')
     report = generate_report(results, ts)
     os.makedirs(output_dir, exist_ok=True)
-    report_path = os.path.join(output_dir, f'compareResult_{ts}.md')
+    report_path = os.path.join(output_dir, f'配置比对结果_{ts}.md')
     with open(report_path, 'w', encoding='utf-8') as f:
         f.write(report)
     print(f'  报告已保存: {report_path}')
