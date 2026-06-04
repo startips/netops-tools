@@ -4,7 +4,9 @@ from interface import deviceControl_auto, ping_check, get_value
 import time
 
 
-def deviceSend(arg=[]):  # 配置检查
+def deviceSend(arg=None):  # 配置检查
+    if arg is None:
+        arg = []
     device_ip = arg[2]
     device_user = arg[0]
     device_pass = arg[1]
@@ -14,30 +16,42 @@ def deviceSend(arg=[]):  # 配置检查
     else:
         cmds = [arg[4]]
     logger = get_value('logger')
-    conn = deviceControl_auto(device_ip, device_user, device_pass)  # 登陆
-    logger.get_log().info('%s 登陆成功' % (device_ip))
+    conn = deviceControl_auto(device_ip, device_user, device_pass)
     result = [device_ip, des_local]
-    pingDelay = ping_check(device_ip)[0]  # ping检测
+    # ping检测
+    try:
+        pingDelay = ping_check(device_ip)[0]
+    except (OSError, ValueError, IndexError):
+        logger.get_log().warning('%s ping检测异常' % device_ip)
+        pingDelay = 'timeout'
     result.append(pingDelay)
     try:  # 登录检查
         resData = conn.sendCmd_auto(cmds)
+        logger.get_log().info('%s 登陆成功' % (device_ip))
         result.append(resData['loginWay'])  # 登录方式
         try:  # 处理数据检查
             logger.get_log().info('%s 回显:\n' % (device_ip))
             cmd_result = {}
-            with open('data/%s_%s.log' % (device_ip, des_local), 'w', encoding='utf-8') as f:
-                for resKey, value in resData.items():  # 回显日志
-                    if resKey != 'loginWay':
-                        f.write('%s\n' % (value))
-                        logger.get_log().info('命令:%s\n回显结果:%s\n' % (resKey, value))
-                        cmd_result[resKey] = checkError(value)
+            # 处理数据
+            for resKey, value in resData.items():  # 回显日志
+                if resKey != 'loginWay':
+                    logger.get_log().info('命令:%s\n回显结果:%s\n' % (resKey, value))
+                    cmd_result[resKey] = checkError(value)
+            # 写入日志文件（best effort）
+            try:
+                with open('data/%s_%s.log' % (device_ip, des_local), 'w', encoding='utf-8') as f:
+                    for resKey, value in resData.items():
+                        if resKey != 'loginWay':
+                            f.write('%s\n' % (value))
+            except OSError as e:
+                logger.get_log().error('%s 日志文件写入失败 %s' % (device_ip, e))
             cmd_result = "\n".join(f"{k}:{v}" for k, v in cmd_result.items())
             result.append(cmd_result)  # 下发结果显示
             logger.get_log().info('%s 命令下发完成,结果汇总：%s' % (device_ip, cmd_result))
         except Exception as e:
             result.append('数据处理异常 %s' % (e))
-            logger.get_log().info('%s 数据处理异常 %s' % (device_ip, e))
-    except Exception as e:
+            logger.get_log().error('%s 数据处理异常 %s' % (device_ip, e))
+    except RuntimeError as e:
         logger.get_log().error('%s 登陆失败 %s' % (device_ip, e))
         result.append('login fail')
     logger.get_log().info('%s 执行完成' % device_ip)
