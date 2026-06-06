@@ -9,52 +9,43 @@ from alive_progress import alive_bar
 from interface import excel, autoThreadingPool, readTxt
 from interface.log_config import setup_logging
 
-
 logger = logging.getLogger(__name__)
 
 
 # import encodings.idna  # 解决python3.9 LookupError: unknown encoding: idna socket.gethostbyname(destination)
 # pyinstaller打包后出错 python3.10已解决这个bug
 
-def funcAction(user, passwd, fileName, logName, func, worker=30):  # 主模块
-    with alive_bar(title='Progress', bar='filling', spinner='waves2', unknown='wait', manual=True) as bar:  # 进度条
-        setup_logging(logName)
-        file = fileName  # 读取文件名
-        file_dir = 'read/%s' % file
-        read = excel(file_dir)
-        logger.info('当前运行环境:%s %s %s' % (platform.system(), platform.version(), platform.machine()))
-        bar(0.05)
-        try:
-            read_info = read.excel_read()
-            logger.info('读取 \'%s\' 成功,数量:%d' % (file, len(read_info)))
-        except Exception as e:
-            logger.error('读取 \'%s\' 失败:%s' % (file, e))
-            bar(1)
-            return
-        bar(0.06)
-        username = user
-        password = passwd
-        bar(0.07)
-        for readCell in read_info:
-            readCell.insert(0, password)
-            readCell.insert(0, username)
-        bar(0.1)
-        logger.info('%s 载入线程...' % func.__name__)
-        my_poll = autoThreadingPool(int(worker), bar=bar)
-        result = my_poll(func, read_info)
-        logger.info('线程结束,准备写入本地...')
-        bar(1)
-        return result
-
-
-def funcAction1(data, logName, func, worker=30):  # 主模块
-    with alive_bar(title='Progress', bar='filling', spinner='waves2', unknown='wait', manual=True) as bar:  # 进度条
+def funcAction(func, logName, data=None, user='', passwd='', fileName='', worker=30):  # 统一执行入口
+    with alive_bar(title='Progress', bar='filling', spinner='waves2', unknown='wait', manual=True) as bar:
         setup_logging(logName)
         logger.info('当前运行环境:%s %s %s' % (platform.system(), platform.version(), platform.machine()))
-        bar(0.1)
+
+        if fileName:
+            # 在线模式：从 Excel 读取 + 注入凭据
+            file_dir = 'read/%s' % fileName
+            read = excel(file_dir)
+            bar(0.05)
+            try:
+                read_info = read.excel_read()
+                logger.info('读取 \'%s\' 成功,数量:%d' % (fileName, len(read_info)))
+            except Exception as e:
+                logger.error('读取 \'%s\' 失败:%s' % (fileName, e))
+                bar(1)
+                return
+            bar(0.06)
+            for readCell in read_info:
+                readCell.insert(0, passwd)
+                readCell.insert(0, user)
+            task_data = read_info
+            bar(0.1)
+        else:
+            # 离线模式：直接使用传入数据
+            task_data = data or []
+            bar(0.1)
+
         logger.info('%s 载入线程...' % func.__name__)
         my_poll = autoThreadingPool(int(worker), bar=bar)
-        result = my_poll(func, data)
+        result = my_poll(func, task_data)
         logger.info('线程结束,准备写入本地...')
         bar(1)
         return result
@@ -144,14 +135,15 @@ def start_action():  # windows功能入口
                   '3).输入账户,密码')
             from checkConfig import deviceCheck
             username, password, worker = platform_select()
-            data = funcAction(username, password, fileName, savename, deviceCheck, worker)
+            data = funcAction(deviceCheck, savename, fileName=fileName,
+                              user=username, passwd=password, worker=worker)
             writeToExcel(savename, title, data)
             break
         if functionSelect == '2':  # 配置检查+状态采集
             from cfgCheck import deviceCheck, get_check_title
             title = get_check_title()
             savename = '状态检查结果'
-            data = funcAction1(oringinDataFormat(), savename, deviceCheck, 10)
+            data = funcAction(deviceCheck, savename, data=oringinDataFormat(), worker=10)
             writeToExcel(savename, title, data)
             break
         if functionSelect == '3':
@@ -162,7 +154,8 @@ def start_action():  # windows功能入口
                   '3).输入账户,密码')
             from sendCmd import deviceSend
             username, password, worker = platform_select()
-            data = funcAction(username, password, fileName, savename, deviceSend, worker)
+            data = funcAction(deviceSend, savename, fileName=fileName,
+                              user=username, passwd=password, worker=worker)
             writeToExcel(savename, title, data)
             break
         if functionSelect == '4':
