@@ -14,16 +14,13 @@ from .device_client import deviceControl, deviceControl_auto, deleteUnknownStr
 from .excel_handler import excel
 
 # 日志
-from .logger import logg
+from .log_config import setup_logging
 
 # 线程池
 from .thread_pool import autoThreadingPool
 
 # 文件工具
 from .file_utils import readTxt, readCsv, makeDir
-
-# 全局变量管理
-from .public_env import init, set_value, get_value
 
 # 网络工具
 from .bitFunctions import ping_check, passwdinput, revData_error
@@ -34,13 +31,11 @@ __all__ = [
     # Excel
     'excel',
     # 日志
-    'logg',
+    'setup_logging',
     # 线程池
     'autoThreadingPool',
     # 文件工具
     'readTxt', 'readCsv', 'makeDir',
-    # 全局变量
-    'init', 'set_value', 'get_value',
     # 网络工具
     'ping_check', 'passwdinput', 'revData_error',
 ]

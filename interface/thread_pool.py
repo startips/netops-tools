@@ -7,12 +7,11 @@ thread_pool.py - 线程池模块
 """
 
 from concurrent import futures
-from .public_env import get_value
 
 
 class autoThreadingPool():  # 线程池
-    def __init__(self, worker=30):
-        self.bar = get_value('bar')
+    def __init__(self, worker=30, bar=None):
+        self.bar = bar
         self.worker_local = worker
         self.result = []
 

@@ -11,11 +11,15 @@ cfgCheck.py - 华为交换机离线配置文件检查
     checkOptions(data, checkItems) - 调度器，按检查项分发到各 _check_xxx 函数
 """
 
-from interface import get_value, excel
+import logging
+from interface import excel
 import os
 import sys
 import re
 import yaml
+
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -177,7 +181,6 @@ def deviceCheck(arg):  # 检查
     返回：
         list，[设备名, 设备类型, sysname, 管理IP, 型号, 各项检查结果...]
     """
-    logger = get_value('logger')
     data_local = arg
     # 确定设备类型和检查项
     dev_info = _returntype(data_local['name'])
@@ -187,11 +190,11 @@ def deviceCheck(arg):  # 检查
         with open('read/config/%s' % data_local['filename'], 'r', encoding='utf-8', errors='ignore') as f:
             fileTxt = f.read()
     except Exception as e:
-        logger.get_log().error('%s 读取文件失败 %s' % (data_local['name'], e))
+        logger.error('%s 读取文件失败 %s' % (data_local['name'], e))
         result.append('read file fail')
         return result
     result.extend(checkOptions(fileTxt, data_local))  # 检查内容，检查项
-    logger.get_log().info('%s 所有项检查完成' % data_local['name'])
+    logger.info('%s 所有项检查完成' % data_local['name'])
     return result
 
 
@@ -214,7 +217,6 @@ def checkOptions(fileTxt, checkItems):
     返回：
         list，[sysname, 管理IP, 型号, 各项检查结果...]
     """
-    logger = get_value('logger')
     checkResult = []
 
     # ---- 固定提取项：sysname / 管理IP / 设备型号 ----
@@ -235,7 +237,7 @@ def checkOptions(fileTxt, checkItems):
 
     # ---- 遍历检查项配置表，分发到各检查函数 ----
     for checkItem, value in checkItems['checkOption'].items():
-        logger.get_log().info(
+        logger.info(
             f'{checkItems["name"]}的检查项"{checkItem}"设置为"{value}",开始检查'
         )
         if value == 1:
@@ -246,7 +248,7 @@ def checkOptions(fileTxt, checkItems):
                 checkResult.append(f'未知配置项: {checkItem}')
         else:
             checkResult.append('不涉及')
-        logger.get_log().info(
+        logger.info(
             f'{checkItems["name"]}的检查项"{checkItem}"设置为"{value}",检查完成'
         )
     return checkResult

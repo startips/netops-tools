@@ -1,33 +1,34 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 import getpass
-from interface import excel, logg, autoThreadingPool, init, set_value, get_value, readTxt
-import platform, time
-from alive_progress import alive_bar
+import logging
+import platform
+import time
 import os
+from alive_progress import alive_bar
+from interface import excel, autoThreadingPool, readTxt
+from interface.log_config import setup_logging
+
+
+logger = logging.getLogger(__name__)
 
 
 # import encodings.idna  # 解决python3.9 LookupError: unknown encoding: idna socket.gethostbyname(destination)
 # pyinstaller打包后出错 python3.10已解决这个bug
 
 def funcAction(user, passwd, fileName, logName, func, worker=30):  # 主模块
-    global Rlock_local, logger, bar  # 锁，日志，进度条
     with alive_bar(title='Progress', bar='filling', spinner='waves2', unknown='wait', manual=True) as bar:  # 进度条
-        init()  # 初始化全局变量
-        set_value('logger', logg(logName, 'log/%s' % logName))
-        set_value('bar', bar)
+        setup_logging(logName)
         file = fileName  # 读取文件名
         file_dir = 'read/%s' % file
         read = excel(file_dir)
-        logger = get_value('logger')
-        bar = get_value('bar')
-        logger.get_log().info('当前运行环境:%s %s %s' % (platform.system(), platform.version(), platform.machine()))
+        logger.info('当前运行环境:%s %s %s' % (platform.system(), platform.version(), platform.machine()))
         bar(0.05)
         try:
             read_info = read.excel_read()
-            logger.get_log().info('读取 \'%s\' 成功,数量:%d' % (file, len(read_info)))
+            logger.info('读取 \'%s\' 成功,数量:%d' % (file, len(read_info)))
         except Exception as e:
-            logger.get_log().error('读取 \'%s\' 失败:%s' % (file, e))
+            logger.error('读取 \'%s\' 失败:%s' % (file, e))
             bar(1)
             return
         bar(0.06)
@@ -38,28 +39,23 @@ def funcAction(user, passwd, fileName, logName, func, worker=30):  # 主模块
             readCell.insert(0, password)
             readCell.insert(0, username)
         bar(0.1)
-        logger.get_log().info('%s 载入线程...' % func.__name__)
-        my_poll = autoThreadingPool(int(worker))
+        logger.info('%s 载入线程...' % func.__name__)
+        my_poll = autoThreadingPool(int(worker), bar=bar)
         result = my_poll(func, read_info)
-        logger.get_log().info('线程结束,准备写入本地...')
+        logger.info('线程结束,准备写入本地...')
         bar(1)
         return result
 
 
 def funcAction1(data, logName, func, worker=30):  # 主模块
-    global Rlock_local, logger, bar  # 锁，日志，进度条
     with alive_bar(title='Progress', bar='filling', spinner='waves2', unknown='wait', manual=True) as bar:  # 进度条
-        init()  # 初始化全局变量
-        set_value('logger', logg(logName, 'log/%s' % logName))
-        set_value('bar', bar)
-        logger = get_value('logger')
-        bar = get_value('bar')
-        logger.get_log().info('当前运行环境:%s %s %s' % (platform.system(), platform.version(), platform.machine()))
+        setup_logging(logName)
+        logger.info('当前运行环境:%s %s %s' % (platform.system(), platform.version(), platform.machine()))
         bar(0.1)
-        logger.get_log().info('%s 载入线程...' % func.__name__)
-        my_poll = autoThreadingPool(int(worker))
+        logger.info('%s 载入线程...' % func.__name__)
+        my_poll = autoThreadingPool(int(worker), bar=bar)
         result = my_poll(func, data)
-        logger.get_log().info('线程结束,准备写入本地...')
+        logger.info('线程结束,准备写入本地...')
         bar(1)
         return result
 
@@ -82,9 +78,9 @@ def writeToExcel(filename, title, data):  # 写入数据到excel
     try:
         write_info.excel_write(title_local, data_local)
         basename = write_info.save_file()
-        logger.get_log().info('文件 %s 写入完成,保存至data目录下' % basename)
+        logger.info('文件 %s 写入完成,保存至data目录下' % basename)
     except Exception as e:
-        logger.get_log().error('文件写入失败,%s' % e)
+        logger.error('文件写入失败,%s' % e)
 
 
 def writeToTXT(data):  # 写入数据到TXT
@@ -95,9 +91,9 @@ def writeToTXT(data):  # 写入数据到TXT
             with open('data/%s_%s_%s.log' % (data_unit[0], data_unit[1], timeNow), 'w') as f:
                 f.write(data_unit[2])
     except Exception as e:
-        logger.get_log().error('文件写入失败,%s %s' % (e, Exception))
+        logger.error('文件写入失败,%s %s' % (e, Exception))
         return
-    logger.get_log().info('文件写入完成,保存至data目录下')
+    logger.info('文件写入完成,保存至data目录下')
 
 
 def platform_select():  # 判断当前运行环境
