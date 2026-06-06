@@ -1,7 +1,6 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 import getpass
-import re
 from interface import excel, logg, autoThreadingPool, init, set_value, get_value, readTxt
 import platform, time
 from alive_progress import alive_bar
