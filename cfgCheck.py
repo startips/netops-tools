@@ -73,7 +73,7 @@ def _load_version_patch_map():
     global _VERSION_PATCH_MAP
     map_result = {}
     try:
-        xl = excel('read/版本补丁.xlsx')
+        xl = excel(os.path.join(_base_dir, 'read', '版本补丁.xlsx'))
         xl.excelReadCread()  # 初始化 workbook 对象
         data = xl.excelReadSheet(sheetnum='版本补丁推荐（季度）')
     except Exception as e:
@@ -187,7 +187,7 @@ def deviceCheck(arg):  # 检查
     data_local.update(dev_info)
     result = [data_local['name'], data_local['type']]
     try:  # 读取文件内容
-        with open('read/config/%s' % data_local['filename'], 'r', encoding='utf-8', errors='ignore') as f:
+        with open(os.path.join(_base_dir, 'read', 'config', data_local['filename']), 'r', encoding='utf-8', errors='ignore') as f:
             fileTxt = f.read()
     except Exception as e:
         logger.error('%s 读取文件失败 %s' % (data_local['name'], e))

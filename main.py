@@ -5,11 +5,18 @@ import logging
 import platform
 import time
 import os
+import sys
 from alive_progress import alive_bar
 from interface import excel, autoThreadingPool, readTxt
 from interface.log_config import setup_logging
 
 logger = logging.getLogger(__name__)
+
+# 基础路径（兼容 PyInstaller 打包）
+if getattr(sys, 'frozen', False):
+    _base_dir = os.path.dirname(sys.executable)
+else:
+    _base_dir = os.path.dirname(os.path.abspath(__file__))
 
 
 # import encodings.idna  # 解决python3.9 LookupError: unknown encoding: idna socket.gethostbyname(destination)
@@ -17,12 +24,12 @@ logger = logging.getLogger(__name__)
 
 def funcAction(func, logName, data=None, user='', passwd='', fileName='', worker=30):  # 统一执行入口
     with alive_bar(title='Progress', bar='filling', spinner='waves2', unknown='wait', manual=True) as bar:
-        setup_logging(logName)
+        setup_logging(logName, log_dir=os.path.join(_base_dir, 'log'))
         logger.info('当前运行环境:%s %s %s' % (platform.system(), platform.version(), platform.machine()))
 
         if fileName:
             # 在线模式：从 Excel 读取 + 注入凭据
-            file_dir = 'read/%s' % fileName
+            file_dir = os.path.join(_base_dir, 'read', fileName)
             read = excel(file_dir)
             bar(0.05)
             try:
@@ -52,7 +59,7 @@ def funcAction(func, logName, data=None, user='', passwd='', fileName='', worker
 
 
 def oringinDataFormat():  # 原始数据分类
-    file_dir = 'read/config'
+    file_dir = os.path.join(_base_dir, 'read', 'config')
     all_items = [item for item in os.listdir(file_dir) if not item.startswith('.')]  # 去掉.开头的文件
     read_info = []  # 结果
     for item in all_items:
@@ -62,7 +69,7 @@ def oringinDataFormat():  # 原始数据分类
 
 
 def writeToExcel(filename, title, data):  # 写入数据到excel
-    filename_local = 'data/%s' % filename
+    filename_local = os.path.join(_base_dir, 'data', filename)
     title_local = title
     data_local = data
     write_info = excel(filename_local)
@@ -79,7 +86,8 @@ def writeToTXT(data):  # 写入数据到TXT
     timeNow = time.strftime('%Y%m%d%H%M%S', time.localtime(time.time()))
     try:
         for data_unit in data_local:
-            with open('data/%s_%s_%s.log' % (data_unit[0], data_unit[1], timeNow), 'w') as f:
+            filepath = os.path.join(_base_dir, 'data', '%s_%s_%s.log' % (data_unit[0], data_unit[1], timeNow))
+            with open(filepath, 'w') as f:
                 f.write(data_unit[2])
     except Exception as e:
         logger.error('文件写入失败,%s %s' % (e, Exception))

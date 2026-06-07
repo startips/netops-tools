@@ -1,18 +1,25 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 import logging
+import os
+import sys
 from interface import deviceControl_auto, ping_check, revData_error, readTxt
 import re
 
-
 logger = logging.getLogger(__name__)
+
+# 基础路径（兼容 PyInstaller 打包）
+if getattr(sys, 'frozen', False):
+    _base_dir = os.path.dirname(sys.executable)
+else:
+    _base_dir = os.path.dirname(os.path.abspath(__file__))
 
 
 def infoDeal(data):  # 数据处理 返回list
     data_local = data
     result_dic = {}
     result = []
-    readInfo = readTxt('read/Keywords.txt')  # 读取匹配关键字
+    readInfo = readTxt(os.path.join(_base_dir, 'read', 'Keywords.txt'))  # 读取匹配关键字
     for i in readInfo:
         cell = i.split(',')
         result_dic.update({cell[1]: ''})
@@ -40,7 +47,9 @@ def infoDeal(data):  # 数据处理 返回list
     return result
 
 
-def deviceCheck(arg=[]):  # 配置检查
+def deviceCheck(arg=None):  # 配置检查
+    if arg is None:
+        arg = []
     device_ip = arg[2]
     device_user = arg[0]
     device_pass = arg[1]

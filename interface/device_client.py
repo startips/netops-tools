@@ -224,17 +224,22 @@ def deleteUnknownStr(line_p):  # 删除垃圾字符，转义序列字符
     # 1. 正则移除所有 ANSI CSI 序列（如 ESC[?25l 隐藏光标、ESC[1;24r 滚动区域等）
     line_p = re.sub(r'\x1b\[[0-9;?]*[a-zA-Z@]', '', line_p)
     # 2. 正则移除两字符 ESC 序列（如 ESC7 保存光标、ESC8 恢复光标等）
-    line_p = re.sub(r'\x1b[^[\x1b]', '', line_p)
-    # 3. 逐字符过滤不可打印字符 + 处理退格，使用列表拼接避免O(n²)开销
-    result = []
-    for ch in line_p:
-        ac = ord(ch)
-        if (32 <= ac < 127) or ac in (9, 10):  # 可打印字符 + \t + \n
-            result.append(ch)
-        elif ac == 8 and result:  # backspace 删除前一个字符
-            result.pop()
-        # \r(13) 直接跳过，不保留
+    line_p = re.sub(r'\x1b[^\x1b]', '', line_p)
+    # 3. 逐行处理：每行独立过滤不可打印字符 + 处理退格
+    #    行与行之间 backspace 不互相影响，避免前导空格丢失
+    lines = line_p.split('\n')
+    cleaned_lines = []
+    for line in lines:
+        result = []
+        for ch in line:
+            ac = ord(ch)
+            if (32 <= ac < 127) or ac == 9:  # 可打印字符 + \t
+                result.append(ch)
+            elif ac == 8 and result:  # backspace 删除前一个字符
+                result.pop()
+            # \r(13) 直接跳过，不保留
+        cleaned_lines.append(''.join(result))
     # 4. 移除 More 提示
-    line = ''.join(result)
-    line = re.sub(r'\s{2}---- More ----\s+', '', line)
-    return line
+    text = '\n'.join(cleaned_lines)
+    text = re.sub(r'\s{2}---- More ----\s+', '', text)
+    return text

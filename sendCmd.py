@@ -1,11 +1,17 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 import logging
+import os
+import sys
 from interface import deviceControl_auto, ping_check
-import time
-
 
 logger = logging.getLogger(__name__)
+
+# 基础路径（兼容 PyInstaller 打包）
+if getattr(sys, 'frozen', False):
+    _base_dir = os.path.dirname(sys.executable)
+else:
+    _base_dir = os.path.dirname(os.path.abspath(__file__))
 
 
 def deviceSend(arg=None):  # 配置检查
@@ -42,7 +48,8 @@ def deviceSend(arg=None):  # 配置检查
                     cmd_result[resKey] = checkError(value)
             # 写入日志文件（best effort）
             try:
-                with open('data/%s_%s.log' % (device_ip, des_local), 'w', encoding='utf-8') as f:
+                filepath = os.path.join(_base_dir, 'data', '%s_%s.log' % (device_ip, des_local))
+                with open(filepath, 'w', encoding='utf-8') as f:
                     for resKey, value in resData.items():
                         if resKey != 'loginWay':
                             f.write('%s\n' % (value))

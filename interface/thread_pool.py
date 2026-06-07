@@ -16,6 +16,8 @@ class autoThreadingPool():  # 线程池
         self.result = []
 
     def __call__(self, func, datalist: list):  # 函数，迭代数据
+        if not datalist:
+            return []
         func_local = func  # function
         datalist_local = datalist  # data
         with futures.ThreadPoolExecutor(max_workers=self.worker_local) as executor:  # max_workers 线程池的数量
