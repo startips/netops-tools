@@ -32,8 +32,10 @@ else:
     _base_dir = os.path.dirname(__file__)
 
 _yaml_path = os.path.join(_base_dir, 'read', 'check_items.yaml')
+logger.debug('加载检查项配置文件: %s', _yaml_path)
 with open(_yaml_path, 'r', encoding='utf-8') as _f:
     _data = yaml.safe_load(_f)
+logger.info('检查项配置加载成功, 共 %d 个检查项', len(_data['check_items']))
 
 CHECK_ITEM_NAMES = tuple(_data['check_items'])
 
@@ -54,6 +56,7 @@ DEVICE_TYPE_PATTERNS = tuple(
 )
 
 CABLE_CHECK_CONFIG = _data.get('cable_check', {})
+logger.debug('设备类型配置加载完成: %s', list(DEVICE_TYPE_CONFIGS.keys()))
 
 
 # ============================================================
@@ -96,21 +99,25 @@ def _load_version_patch_map():
     读取失败时直接报错退出。
     """
     global _VERSION_PATCH_MAP
+    logger.info('开始加载版本补丁对照表...')
     map_result = {}
     try:
         xl = excel(os.path.join(_base_dir, 'read', '版本补丁.xlsx'))
         xl.excelReadCread()  # 初始化 workbook 对象
         data = xl.excelReadSheet(sheetnum='版本补丁推荐（季度）')
     except Exception as e:
+        logger.error('读取版本补丁.xlsx 失败: %s', e)
         raise RuntimeError(f'读取版本补丁.xlsx 失败: {e}')
 
     if not data:
+        logger.warning('版本补丁.xlsx 数据为空，对照表将为空')
         return  # 空文件，不报错但对照表为空
 
     headers = data[0]
     # 找到列索引
     scene_idx = next((i for i, h in enumerate(headers) if '使用场景' in str(h)), None)
     if scene_idx is None:
+        logger.error('版本补丁.xlsx 中未找到"使用场景"列')
         raise RuntimeError('版本补丁.xlsx 中未找到"使用场景"列')
 
     for row in data[1:]:
@@ -121,6 +128,7 @@ def _load_version_patch_map():
             continue  # 跳过空行
 
     _VERSION_PATCH_MAP = map_result
+    logger.info('版本补丁对照表加载完成, 共 %d 条记录', len(_VERSION_PATCH_MAP))
 
 
 def get_check_title():
@@ -163,18 +171,22 @@ def _match_model(model):
 
     # 1. 精确匹配
     if model in _VERSION_PATCH_MAP:
+        logger.debug('型号精确匹配: %s', model)
         return model
 
     # 2. S5731 前缀匹配（S5731-H48T4XC / S5731-S48T4X → S5731-H / S5731-S）
     if model.startswith('S5731-'):
         for key in _VERSION_PATCH_MAP:
             if key.startswith('S5731-') and model.startswith(key):
+                logger.debug('型号前缀匹配: %s -> %s', model, key)
                 return key
 
+    logger.debug('型号未匹配到对照表: %s', model)
     return None
 
 
 # 模块加载时自动加载对照表
+logger.debug('模块初始化: 加载版本补丁对照表')
 _load_version_patch_map()
 
 
@@ -190,7 +202,9 @@ def _returntype(name):
     """
     for pattern, type_name in DEVICE_TYPE_PATTERNS:
         if re.search(pattern, name, flags=re.I):
+            logger.debug('设备类型匹配: %s -> %s', name, type_name)
             return {'type': type_name, 'checkOption': DEVICE_TYPE_CONFIGS[type_name].copy()}
+    logger.debug('设备类型未匹配，归为 Other: %s', name)
     return {'type': 'Other', 'checkOption': DEVICE_TYPE_CONFIGS['Other'].copy()}
 
 
@@ -207,19 +221,21 @@ def deviceCheck(arg):  # 检查
         list，[设备名, 设备类型, sysname, 管理IP, 型号, 各项检查结果...]
     """
     data_local = arg
+    logger.info('开始检查设备: %s', data_local['name'])
     # 确定设备类型和检查项
     dev_info = _returntype(data_local['name'])
     data_local.update(dev_info)
+    logger.info('设备类型: %s', data_local['type'])
     result = [data_local['name'], data_local['type']]
     try:  # 读取文件内容
         with open(os.path.join(_base_dir, 'read', 'config', data_local['filename']), 'r', encoding='utf-8', errors='ignore') as f:
             fileTxt = f.read()
     except Exception as e:
-        logger.error('%s 读取文件失败 %s' % (data_local['name'], e))
+        logger.error('%s 读取文件失败: %s', data_local['name'], e)
         result.append('read file fail')
         return result
     result.extend(checkOptions(fileTxt, data_local))  # 检查内容，检查项
-    logger.info('%s 所有项检查完成' % data_local['name'])
+    logger.info('%s 所有项检查完成', data_local['name'])
     return result
 
 
@@ -243,6 +259,7 @@ def checkOptions(fileTxt, checkItems):
         list，[sysname, 管理IP, 型号, 各项检查结果...]
     """
     checkResult = []
+    logger.info('%s 开始提取基本元信息...', checkItems['name'])
 
     # ---- 固定提取项：sysname / 管理IP / 设备型号 ----
     devSysnameMatch = _RE_SYSNAME.search(fileTxt)
@@ -254,6 +271,9 @@ def checkOptions(fileTxt, checkItems):
     devIpMatch = _RE_HUAWEI_MODEL.search(fileTxt)
     checkResult.append(devIpMatch.group(1) if devIpMatch else '未匹配到')
 
+    logger.info('%s 基本元信息: sysname=%s, 管理IP=%s, 型号=%s',
+                checkItems['name'], checkResult[0], checkResult[1], checkResult[2])
+
     # ---- 遍历检查项配置表，分发到各检查函数 ----
     for checkItem, value in checkItems['checkOption'].items():
         logger.info(
@@ -264,6 +284,7 @@ def checkOptions(fileTxt, checkItems):
             if checker:
                 checkResult.append(checker(fileTxt, checkItems))
             else:
+                logger.warning('%s 未知配置项: %s', checkItems['name'], checkItem)
                 checkResult.append(f'未知配置项: {checkItem}')
         else:
             checkResult.append('不涉及')
@@ -289,6 +310,7 @@ def _check_version(fileTxt, checkItems):
     - 找不到对应型号 → 返回 '版本号-未知'
     - 采集不到版本号 → 返回 '未匹配到'
     """
+    logger.debug('%s 开始版本检查', checkItems['name'])
     matchVerinfo = _RE_VERSION.findall(fileTxt)
     collected = matchVerinfo[0] if matchVerinfo else '未匹配到'
 
@@ -315,6 +337,7 @@ def _check_patch(fileTxt, checkItems):
     - 找不到对应型号 → 返回 '补丁号-未知'
     - 采集不到补丁号 → 返回 '未匹配到'
     """
+    logger.debug('%s 开始补丁检查', checkItems['name'])
     matchPatInfo = _RE_PATCH.findall(fileTxt)
     collected = matchPatInfo[0] if matchPatInfo else '未匹配到'
 
@@ -351,6 +374,7 @@ def _check_extra_files(fileTxt, checkItems):
         '未匹配到'    — 找不到 flash 目录信息或三项均为 0
         str           — 各类型文件的实际数量（如 'cc:2,pat:1,cfg:1'）
     """
+    logger.debug('%s 开始多余文件检查', checkItems['name'])
     matchDirInfo = _RE_FLASH_DIR.search(fileTxt)
     if not matchDirInfo:
         return '未匹配到'
@@ -376,6 +400,7 @@ def _check_extra_files(fileTxt, checkItems):
 
 def _check_hardware(fileTxt, checkItems):
     """检查硬件设备状态（有无 Offline/Unregistered/Abnormal）"""
+    logger.debug('%s 开始硬件状态检查', checkItems['name'])
     deviceInfo = _RE_DEVICE_STATUS.search(fileTxt)
     if not deviceInfo:
         return '未匹配到'
@@ -388,6 +413,7 @@ def _check_hardware(fileTxt, checkItems):
 
 def _check_open_ports(fileTxt, checkItems):
     """检查是否存在 down 状态但未 shutdown 的端口"""
+    logger.debug('%s 开始未关闭端口检查', checkItems['name'])
     matchDownPortInfo = re.findall(
         r'(?:Multi|100|25|10)GE\d+\/\d+\/\d+\s+(down|down\(ed\)|down\(b\))'
         r'(?:\s+\S+){3}\s+\d+\s+\d+',
@@ -400,6 +426,7 @@ def _check_open_ports(fileTxt, checkItems):
 
 def _check_bgp_neighbor(fileTxt, checkItems):
     """检查 BGP 邻居状态"""
+    logger.debug('%s 开始BGP邻居检查', checkItems['name'])
     bgpInfo = _RE_BGP_INFO.search(fileTxt)
     if not bgpInfo:
         return '未匹配到'
@@ -415,6 +442,7 @@ def _check_bgp_neighbor(fileTxt, checkItems):
 
 def _check_feature_software(fileTxt, checkItems):
     """检查 feature-software 状态"""
+    logger.debug('%s 开始feature-software检查', checkItems['name'])
     matchFeaInfo = _RE_FEATURE.search(fileTxt)
     if not matchFeaInfo:
         return '未匹配到'
@@ -428,6 +456,7 @@ def _check_feature_software(fileTxt, checkItems):
 
 def _check_failed_commands(fileTxt, checkItems):
     """检查配置回滚的失败命令数量"""
+    logger.debug('%s 开始失败命令检查', checkItems['name'])
     matchRecover = _RE_FAILED_CMD.findall(fileTxt)
     if not matchRecover:
         return '未匹配到'
@@ -436,12 +465,14 @@ def _check_failed_commands(fileTxt, checkItems):
 
 def _check_esn(fileTxt, checkItems):
     """检查设备 ESN 序列号"""
+    logger.debug('%s 开始ESN检查', checkItems['name'])
     esnInfo = _RE_ESN.search(fileTxt)
     return esnInfo.group(1) if esnInfo else '未匹配到'
 
 
 def _check_mlag_status(fileTxt, checkItems):
     """检查 M-LAG 心跳/主备状态"""
+    logger.debug('%s 开始M-LAG状态检查', checkItems['name'])
     return '通过' if genCheckOption(
         r'Heart beat state\s+\:\s+OK\s*\n\s*'
         r'Node [12][\s\S]*?State\s+\:\s+(:?Backup|Master)[\s\S]*?'
@@ -452,6 +483,7 @@ def _check_mlag_status(fileTxt, checkItems):
 
 def _check_hash(fileTxt, checkItems):
     """检查负载均衡 ECMP hash 模式"""
+    logger.debug('%s 开始hash配置检查', checkItems['name'])
     return '通过' if genCheckOption(
         r'#\s*\n\s*'
         r'load-balance ecmp\s*\n\s*'
@@ -476,6 +508,7 @@ def _check_alarm_active(fileTxt, checkItems):
         '通过'      — 有回显区域，但没有告警数据行
         'N'         — 有 N 条活跃告警（N 为数字字符串）
     """
+    logger.debug('%s 开始告警检查', checkItems['name'])
     # 定位 display alarm active 命令的回显区域
     # 回显格式：
     #   display alarm active
@@ -534,6 +567,7 @@ def _parse_description_section(fileTxt):
         fileTxt, re.DOTALL | re.IGNORECASE
     )
     if not section:
+        logger.debug('未匹配到 display interface description 段')
         return {}
 
     content = section.group(2)
@@ -574,6 +608,7 @@ def _parse_description_section(fileTxt):
         if desc and not _should_exclude_intf(cur_intf, cur_phy):
             result[cur_intf] = {'phy': cur_phy, 'description': desc}
 
+    logger.debug('解析 description 完成: 匹配到 %d 个有描述的接口', len(result))
     return result
 
 
@@ -628,6 +663,7 @@ def _parse_lldp_section(fileTxt):
         fileTxt, re.DOTALL | re.IGNORECASE
     )
     if not section:
+        logger.debug('未匹配到 display lldp neighbor brief 段')
         return {}
 
     content = section.group(1)
@@ -649,6 +685,7 @@ def _parse_lldp_section(fileTxt):
             break
 
     if not header_line:
+        logger.debug('LLDP段未找到表头行')
         return {}
 
     # 判断格式
@@ -678,6 +715,7 @@ def _parse_lldp_section(fileTxt):
 
         result[local_intf] = {'device': neighbor_dev, 'port': neighbor_intf}
 
+    logger.debug('解析 LLDP 完成: 匹配到 %d 个邻居', len(result))
     return result
 
 
@@ -695,6 +733,7 @@ def _check_cable(fileTxt, checkItems):
         '未匹配到'      — 没有找到 description 或 LLDP 段
         str             — 问题列表，每行一条
     """
+    logger.debug('%s 开始线路检查', checkItems['name'])
     descriptions = _parse_description_section(fileTxt)
     if not descriptions:
         return '未匹配到'

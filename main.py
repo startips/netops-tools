@@ -23,7 +23,8 @@ else:
 # pyinstaller打包后出错 python3.10已解决这个bug
 
 def funcAction(func, logName, data=None, user='', passwd='', fileName='', worker=30):  # 统一执行入口
-    with alive_bar(title='Progress', bar='filling', spinner='waves2', unknown='wait', manual=True) as bar:
+    with alive_bar(title='Progress', bar='filling', spinner='waves2', unknown='wait', manual=True,
+                   enrich_print=False) as bar:
         setup_logging(logName, log_dir=os.path.join(_base_dir, 'log'))
         logger.info('当前运行环境:%s %s %s' % (platform.system(), platform.version(), platform.machine()))
 

@@ -39,7 +39,7 @@ def setup_logging(log_name: str, log_dir: str = 'log'):
     log_file = f'{log_dir}/{log_name}_{time_now}.log'
 
     formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s:%(message)s',
+        '%(asctime)s - %(threadName)s - %(name)s - %(levelname)s:%(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
 

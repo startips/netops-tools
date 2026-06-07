@@ -20,6 +20,10 @@ import re
 from datetime import datetime
 
 import yaml
+import logging
+from interface.log_config import setup_logging
+
+logger = logging.getLogger(__name__)
 
 # ============================================================
 # 路径常量
@@ -40,6 +44,7 @@ def _read_file(path):
         with open(path, 'r', encoding='utf-8', errors='ignore') as f:
             return f.read()
     except Exception:
+        logger.debug('文件读取失败: %s', path)
         return None
 
 
@@ -49,10 +54,12 @@ def _read_file(path):
 
 def load_rules(rules_path):
     """加载 YAML 规则文件，失败返回空规则"""
+    logger.info('加载规则文件: %s', rules_path)
     content = _read_file(rules_path)
     if not content:
         print(f'[警告] 规则文件 {rules_path} 读取失败')
         return {'sections': [], 'ignore': {'global': [], 'sections': []}}
+    logger.info('规则文件加载成功')
     return yaml.safe_load(content) or {'sections': [], 'ignore': {'global': [], 'sections': []}}
 
 
@@ -87,6 +94,7 @@ def _dev_name_from_log(filename, cfg_names):
 
 def match_devices(intended_dir, collected_dir):
     """将 config_intended/*.cfg 与 config/*.log 按设备名配对"""
+    logger.info('开始设备配对: 预期目录=%s, 采集目录=%s', intended_dir, collected_dir)
     # 先扫预期目录，建立 cfg 名集合
     intended_files = {}
     if os.path.isdir(intended_dir):
@@ -95,6 +103,7 @@ def match_devices(intended_dir, collected_dir):
                 intended_files[_dev_name_from_cfg(f)] = os.path.join(intended_dir, f)
 
     cfg_names = set(intended_files.keys())
+    logger.debug('预期目录扫描到 %d 个cfg文件', len(intended_files))
 
     # 扫采集目录，用两级匹配提取设备名
     collected_files = {}
@@ -103,6 +112,8 @@ def match_devices(intended_dir, collected_dir):
             if f.endswith(('.log', '.txt')) and not f.startswith('.'):
                 dev_name = _dev_name_from_log(f, cfg_names)
                 collected_files[dev_name] = os.path.join(collected_dir, f)
+
+    logger.debug('采集目录扫描到 %d 个文件', len(collected_files))
 
     # 取并集，分类
     all_devices = set(intended_files.keys()) | set(collected_files.keys())
@@ -118,6 +129,7 @@ def match_devices(intended_dir, collected_dir):
         else:
             only_collected.append(log)
 
+    logger.info('设备配对完成: 匹配 %d 台, 仅预期 %d 台, 仅采集 %d 台', len(matched), len(only_intended), len(only_collected))
     return matched, only_intended, only_collected
 
 
@@ -128,6 +140,8 @@ def match_devices(intended_dir, collected_dir):
 def extract_collected_config(text):
     """从采集日志中提取 display current-configuration 输出段"""
     m = re.search(r'display current-configuration([\s\S]*?return)', text, re.IGNORECASE)
+    if not m:
+        logger.debug('未从采集日志中提取到 display current-configuration 配置段')
     return m.group(1).strip() if m else None
 
 
@@ -146,6 +160,7 @@ def extract_model_version(log_text):
         vm = re.search(r'Version\s+\S+\s+\(\S+\s+(V?\d+R\d+C\d+(?:SPC\d+)?)\)', vt, re.IGNORECASE)
         if vm:
             version = vm.group(1)
+    logger.debug('提取型号版本: model=%s, version=%s', model, version)
     return model, version
 
 
@@ -210,6 +225,7 @@ def parse_config(text, sections_def):
     """
     if not sections_def:
         # 没有定义段落，全部归全局
+        logger.debug('无段落定义, 全部归全局')
         return {
             'global': [l.strip() for l in text.split('\n') if l.strip()],
             'sections': {},
@@ -258,6 +274,7 @@ def parse_config(text, sections_def):
     global_text = ''.join(remaining_parts)
     global_lines = [l.strip() for l in global_text.split('\n') if l.strip()]
 
+    logger.debug('配置解析完成: 全局行 %d, 段落 %d 个', len(global_lines), len(sections))
     return {'global': global_lines, 'sections': sections}
 
 
@@ -354,6 +371,7 @@ def apply_ignore(config_data, ignore_rules, model=None, version=None):
     全局行：匹配 global 正则的直接丢弃
     段落行：先匹配 header_pattern，再匹配 lines 的直接丢弃
     """
+    logger.debug('开始应用忽略规则: model=%s, version=%s', model, version)
     global_ignores = _compile_global_ignores(
         ignore_rules.get('global', []), model, version)
     section_ignores = _compile_section_ignores(
@@ -383,6 +401,7 @@ def apply_ignore(config_data, ignore_rules, model=None, version=None):
             if kept:
                 result['sections'][cat_name][header] = kept
 
+    logger.debug('忽略规则应用完成: 全局行 %d, 段落分类 %d', len(result['global']), len(result['sections']))
     return result
 
 
@@ -412,6 +431,7 @@ def normalize_passwords(config_data):
         result['sections'][cat] = {}
         for h, lines in sub.items():
             result['sections'][cat][h] = [_norm(l) for l in lines]
+    logger.debug('密码归一化完成: 全局行 %d, 段落分类 %d', len(result['global']), len(result['sections']))
     return result
 
 
@@ -430,6 +450,7 @@ def _parse_ssh_cipher_line(line):
 
 def _ssh_cipher_diff(i_lines, a_lines):
     """SSH 密码套件无序集合比较"""
+    logger.debug('开始SSH密码套件比较')
     i_sets = {l: s for l in i_lines if (s := _parse_ssh_cipher_line(l))}
     a_sets = {l: s for l in a_lines if (s := _parse_ssh_cipher_line(l))}
 
@@ -485,6 +506,7 @@ def compare_configs(intended, actual, model=None, version=None):
 
     返回: {'model': ..., 'version': ..., 'diffs': {分类: {missing/extra: [...]}}}
     """
+    logger.debug('开始配置对比: model=%s, version=%s', model, version)
     result = {
         'model': model,
         'version': version,
@@ -552,6 +574,7 @@ def compare_configs(intended, actual, model=None, version=None):
             global_diffs['extra'] = extra
         result['diffs']['全局配置'] = global_diffs
 
+    logger.debug('配置对比完成: %d 个分类有差异', len(result['diffs']))
     return result
 
 
@@ -569,6 +592,7 @@ def _mask_sensitive(text):
 
 def generate_report(results, timestamp):
     """生成 Markdown 报告"""
+    logger.info('生成Markdown报告, 共 %d 台设备', len(results))
     lines = [
         '# 配置下发验证比对报告\n',
         f'- 生成时间: {timestamp}',
@@ -677,6 +701,7 @@ def generate_report(results, timestamp):
 
 def generate_txt_report(results, timestamp):
     """生成纯文本报告（保留空格）"""
+    logger.info('生成纯文本报告, 共 %d 台设备', len(results))
     lines = []
     lines.append('=' * 60)
     lines.append('配置下发验证比对报告')
@@ -770,19 +795,23 @@ def process_one_device(dev_name, cfg_path, log_path, rules):
     处理单台设备：解析 → 忽略 → 归一化 → 对比。
     返回: (设备名, 结果dict 或 错误信息)
     """
+    logger.info('开始处理设备: %s', dev_name)
     # 读取预期配置
     cfg_text = _read_file(cfg_path)
     if cfg_text is None:
+        logger.warning('%s 读取预期配置文件失败: %s', dev_name, cfg_path)
         return dev_name, '读取预期配置文件失败'
 
     # 读取采集日志
     log_text = _read_file(log_path)
     if log_text is None:
+        logger.warning('%s 读取采集日志文件失败: %s', dev_name, log_path)
         return dev_name, '读取采集日志文件失败'
 
     # 提取 current-configuration 段
     collected_text = extract_collected_config(log_text)
     if collected_text is None:
+        logger.warning('%s 未从采集日志中提取到配置段', dev_name)
         return dev_name, '未从采集日志中提取到配置段'
 
     # 提取型号版本
@@ -806,11 +835,13 @@ def process_one_device(dev_name, cfg_path, log_path, rules):
     # 对比
     diff = compare_configs(intended, collected, model, version)
 
+    logger.info('设备 %s 处理完成', dev_name)
     return dev_name, diff
 
 
 def main():
     """主入口"""
+    setup_logging('compare_configs')
     print('=' * 50)
     print('配置下发验证比对工具 v2')
     print('=' * 50)
@@ -853,7 +884,7 @@ def main():
     from alive_progress import alive_bar
     results = []
     with alive_bar(title='比对进度', bar='filling', spinner='waves2',
-                   total=len(matched), receipt=False) as bar:
+                   total=len(matched), receipt=False, enrich_print=False) as bar:
         for dev_name, cfg_path, log_path in matched:
             name, result = process_one_device(dev_name, cfg_path, log_path, rules)
             if isinstance(result, str):
