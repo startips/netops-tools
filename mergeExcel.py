@@ -6,11 +6,11 @@ from pathlib import Path
 from interface import excel
 
 
-def mergeData():  # 汇总所有数据到一个表
+def mergeData():  # 巡检后汇总所有数据到一个表
     # --- 配置区域 ---
-    source_dir = '/Users/shadowx/Documents/招行/巡检/2026五一节前巡检/巡检报告'  # 存放压缩包的目录
+    source_dir = '/Users/shadowx/Documents/招行/巡检/2026Q2/巡检报告数据'  # 存放压缩包的目录
     output_file = 'data/巡检成功数据汇总'  # 输出文件名
-    temp_extract_dir = '/Users/shadowx/Documents/招行/巡检/2026五一节前巡检/巡检报告/temp_extract'  # 临时解压目录
+    temp_extract_dir = '/Users/shadowx/Documents/招行/巡检/2026Q2/巡检报告数据/temp_extract'  # 临时解压目录
     target_sub_path = "NetWork Healthy Check Report(Engineer).xlsx"  # 目标文件
     dataall = []
     if not os.path.exists(source_dir):
@@ -73,10 +73,10 @@ def mergeData():  # 汇总所有数据到一个表
 
 def collect_and_split_zip():  # 提取文件并压缩分片
     # --- 配置区域 ---
-    source_dir = '/Users/shadowx/Documents/招行/巡检/2026五一节前巡检/巡检报告'
-    temp_extract_dir = os.path.expanduser('/Users/shadowx/Documents/招行/巡检/2026五一节前巡检/巡检报告/temp_extract')
+    source_dir = '/Users/shadowx/Documents/招行/巡检/2026Q2/巡检报告数据'
+    temp_extract_dir = os.path.expanduser('/Users/shadowx/Documents/招行/巡检/2026Q2/temp_extract')
     # 新增：用于存放准备压缩的文件的文件夹
-    collect_dir = os.path.expanduser('/Users/shadowx/Documents/招行/巡检/2026五一节前巡检/巡检报告/collected_reports')
+    collect_dir = os.path.expanduser('/Users/shadowx/Documents/招行/巡检/2026Q2/collected_reports')
     # 最终压缩包名称（不带后缀）
     output_zip_name = "巡检数据分析汇总"
     # 分片大小
@@ -143,7 +143,7 @@ def collect_and_split_zip():  # 提取文件并压缩分片
 
 def mergeOriginalData():  # 汇总原始表格数据
     # --- 配置区域 ---
-    source_file = '/Users/shadowx/Documents/招行/巡检/2026五一节前巡检/巡检设备清单汇总20260413更新.xlsx'  # 原始文件
+    source_file = '/Users/shadowx/Documents/招行/巡检/2026Q2/巡检设备清单汇总20260603更新.xlsx'  # 原始文件
     data = []
     openExcel = excel(source_file)
     sheetnames = openExcel.excelReadCread()
@@ -164,7 +164,7 @@ def mergeOriginalData():  # 汇总原始表格数据
 
 def merge_zip_txt_files():  # 汇总配置文件到一个文件夹
     # 配置区
-    zip_dir_path = '/Users/shadowx/Documents/招行/巡检/2026五一节前巡检/巡检报告'
+    zip_dir_path = '/Users/shadowx/Documents/招行/巡检/2026Q2/巡检报告数据'
     output_dir_path = '/Users/shadowx/Documents/招行/巡检/设备配置文件汇总'
 
     # 代码区
@@ -211,7 +211,7 @@ def merge_zip_txt_files():  # 汇总配置文件到一个文件夹
 
 
 if __name__ == "__main__":
-    # collect_and_split_zip() # 解压zip获取报告并打包
-    # mergeOriginalData() # 汇总原始数据
-    # mergeData() # 合并巡检后的数据到一个excel
-    merge_zip_txt_files()  # 汇总巡检后的配置文件
+    # mergeOriginalData() # 巡检前汇总原始数据
+    collect_and_split_zip() # 巡检后解压zip获取报告并打包
+    # mergeData() # 巡检后合并数据到一个excel
+    merge_zip_txt_files()  # 巡检后汇总压缩包中的配置文件到一个文件夹

@@ -44,8 +44,9 @@ class excel:  # Excel表格处理 只支持.xlsx格式
                 if value is None:
                     continue
                 # 规则
+                # print(value)
                 for key in ['未通过']:
-                    if key in value:
+                    if isinstance(value, str) and key in value:  # 只对字符串格式做判断
                         cell.font = red_font
                         break
 
