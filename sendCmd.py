@@ -31,15 +31,15 @@ def deviceSend(arg=None):  # 配置下发
     result = [device_ip, des_local]
     total_start = time.time()
 
-    logger.info('%s 开始执行 (%d条命令)' % (device_ip, len(cmds)))
+    logger.info(f'{device_ip} 开始执行 ({len(cmds)}条命令)')
 
     # ping检测
     try:
         t0 = time.time()
         pingDelay = ping_check(device_ip)[0]
-        logger.info('%s | ping: %sms (耗时%.1fs)' % (device_ip, pingDelay, time.time() - t0))
+        logger.info(f'{device_ip} | ping: {pingDelay}ms (耗时{time.time() - t0:.1f}s)')
     except (OSError, ValueError, IndexError) as e:
-        logger.warning('%s | ping异常: %s' % (device_ip, e))
+        logger.warning(f'{device_ip} | ping异常: {e}')
         pingDelay = 'timeout'
     result.append(pingDelay)
 
@@ -49,7 +49,7 @@ def deviceSend(arg=None):  # 配置下发
         resData = conn.sendCmd_auto(cmds)
         login_time = time.time() - t0
         login_way = resData['loginWay']
-        logger.info('%s | %s连接成功 (耗时%.1fs)' % (device_ip, login_way, login_time))
+        logger.info(f'{device_ip} | {login_way}连接成功 (耗时{login_time:.1f}s)')
         result.append(login_way)
 
         # 逐条执行命令
@@ -66,39 +66,36 @@ def deviceSend(arg=None):  # 配置下发
 
             if check_res == '成功':
                 success_count += 1
-                logger.info('%s | [%d/%d] %s → 成功 (回显%d字节)'
-                            % (device_ip, idx, cmd_total, resKey, byte_len))
+                logger.info(f'{device_ip} | [{idx}/{cmd_total}] {resKey} → 成功 (回显{byte_len}字节)')
             else:
                 fail_count += 1
-                logger.warning('%s | [%d/%d] %s → 失败: %s'
-                               % (device_ip, idx, cmd_total, resKey, err_detail))
+                logger.warning(f'{device_ip} | [{idx}/{cmd_total}] {resKey} → 失败: {err_detail}')
 
             cmd_result[resKey] = check_res[0]
 
         # 写入日志文件
         try:
-            filepath = os.path.join(_base_dir, 'data', '%s_%s.log' % (device_ip, des_local))
+            filepath = os.path.join(_base_dir, 'data', f'{device_ip}_{des_local}.log')
             with open(filepath, 'w', encoding='utf-8') as f:
                 for resKey, value in resData.items():
                     if resKey != 'loginWay':
-                        f.write('=== %s ===\n' % resKey)
-                        f.write('%s\n\n' % value)
-            logger.info('%s | 日志已保存: %s' % (device_ip, filepath))
+                        f.write(f'=== {resKey} ===\n')
+                        f.write(f'{value}\n\n')
+            logger.info(f'{device_ip} | 日志已保存: {filepath}')
         except OSError as e:
-            logger.error('%s | 日志文件写入失败: %s' % (device_ip, e))
+            logger.error(f'{device_ip} | 日志文件写入失败: {e}')
 
         # 汇总
         total_time = time.time() - total_start
         summary = "\n".join(f"{k}:{v}" for k, v in cmd_result.items())
         result.append(summary)
-        logger.info('%s | 结果: 成功%d条, 失败%d条 (总耗时%.1fs)'
-                    % (device_ip, success_count, fail_count, total_time))
+        logger.info(f'{device_ip} | 结果: 成功{success_count}条, 失败{fail_count}条 (总耗时{total_time:.1f}s)')
 
     except RuntimeError as e:
-        logger.error('%s | 登录失败 (SSH+Telnet均失败): %s' % (device_ip, e))
+        logger.error(f'{device_ip} | 登录失败 (SSH+Telnet均失败): {e}')
         result.append('login fail')
 
-    logger.info('%s 执行完成' % device_ip)
+    logger.info(f'{device_ip} 执行完成')
     return result
 
 

@@ -135,7 +135,7 @@ def image_to_base64(path):
         # 使用base64进行编码
         b64encode = base64.b64encode(img.read())
         s = b64encode.decode()
-        b64_encode = 'data:image/jpeg;base64,%s' % s
+        b64_encode = f'data:image/jpeg;base64,{s}'
         # 返回base64编码字符串
         return b64_encode
 
@@ -172,7 +172,7 @@ def revData_error(data):  # 判断是否包含错误代码
     for error in errorCode:
         match = re.search(r'%s' % error, data, re.IGNORECASE)
         if match:
-            return '命令执行出错 receive an error code:%s' % error
+            return f'命令执行出错 receive an error code:{error}'
     return 'NULL'
 
 

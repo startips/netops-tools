@@ -17,7 +17,7 @@ def netSplit(net, input_maskBit=18, output_maskBit=27):  # 输入网段返回子
         netMaskVarBin = re.findall(r'.{8}', netMaskVar)
         netMaskVarInt = [str(bin2int(cell)) for cell in netMaskVarBin]
         networkNew = '.'.join(netMaskVarInt)
-        networkNew = '%s/%s' % (networkNew, output_maskBit)
+        networkNew = f'{networkNew}/{output_maskBit}'
         result.append(networkNew)
     return result
 

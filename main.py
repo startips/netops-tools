@@ -26,7 +26,7 @@ def funcAction(func, logName, data=None, user='', passwd='', fileName='', worker
     with alive_bar(title='Progress', bar='filling', spinner='waves2', unknown='wait', manual=True,
                    enrich_print=False) as bar:
         setup_logging(logName, log_dir=os.path.join(_base_dir, 'log'))
-        logger.info('当前运行环境:%s %s %s' % (platform.system(), platform.version(), platform.machine()))
+        logger.info(f'当前运行环境:{platform.system()} {platform.version()} {platform.machine()}')
 
         if fileName:
             # 在线模式：从 Excel 读取 + 注入凭据
@@ -35,9 +35,9 @@ def funcAction(func, logName, data=None, user='', passwd='', fileName='', worker
             bar(0.05)
             try:
                 read_info = read.excel_read()
-                logger.info('读取 \'%s\' 成功,数量:%d' % (fileName, len(read_info)))
+                logger.info(f'读取 \'{fileName}\' 成功,数量:{len(read_info)}')
             except Exception as e:
-                logger.error('读取 \'%s\' 失败:%s' % (fileName, e))
+                logger.error(f'读取 \'{fileName}\' 失败:{e}')
                 bar(1)
                 return
             bar(0.06)
@@ -51,7 +51,7 @@ def funcAction(func, logName, data=None, user='', passwd='', fileName='', worker
             task_data = data or []
             bar(0.1)
 
-        logger.info('%s 载入线程...' % func.__name__)
+        logger.info(f'{func.__name__} 载入线程...')
         my_poll = autoThreadingPool(int(worker), bar=bar)
         result = my_poll(func, task_data)
         logger.info('线程结束,准备写入本地...')
@@ -77,9 +77,9 @@ def writeToExcel(filename, title, data):  # 写入数据到excel
     try:
         write_info.excel_write(title_local, data_local)
         basename = write_info.save_file()
-        logger.info('文件 %s 写入完成,保存至data目录下' % basename)
+        logger.info(f'文件 {basename} 写入完成,保存至data目录下')
     except Exception as e:
-        logger.error('文件写入失败,%s' % e)
+        logger.error(f'文件写入失败,{e}')
 
 
 def writeToTXT(data):  # 写入数据到TXT
@@ -87,11 +87,11 @@ def writeToTXT(data):  # 写入数据到TXT
     timeNow = time.strftime('%Y%m%d%H%M%S', time.localtime(time.time()))
     try:
         for data_unit in data_local:
-            filepath = os.path.join(_base_dir, 'data', '%s_%s_%s.log' % (data_unit[0], data_unit[1], timeNow))
+            filepath = os.path.join(_base_dir, 'data', f'{data_unit[0]}_{data_unit[1]}_{timeNow}.log')
             with open(filepath, 'w') as f:
                 f.write(data_unit[2])
     except Exception as e:
-        logger.error('文件写入失败,%s %s' % (e, Exception))
+        logger.error(f'文件写入失败,{e} {Exception}')
         return
     logger.info('文件写入完成,保存至data目录下')
 
@@ -139,8 +139,8 @@ def start_action():  # windows功能入口
                 if i.split(',')[1] not in title:
                     title.append(i.split(',')[1])
             savename = 'checkConfig'
-            print('1).确认IP等信息已填入read\devices_ip.xlsx\n'
-                  '2).确认检查关键字已填入read\keyWords.txt\n'
+            print('1).确认IP等信息已填入read\\devices_ip.xlsx\n'
+                  '2).确认检查关键字已填入read\\keyWords.txt\n'
                   '3).输入账户,密码')
             from checkConfig import deviceCheck
             username, password, worker = platform_select()
@@ -159,7 +159,7 @@ def start_action():  # windows功能入口
             fileName = 'devices_ip.xlsx'
             title = ['IP', 'Description', 'PingStatus(ms)', 'accessMode', 'result']  # 保存的sheet标题
             savename = 'sendCmd'
-            print('1).确认IP等信息已填入read\devices_ip.xlsx\n'
+            print('1).确认IP等信息已填入read\\devices_ip.xlsx\n'
                   '3).输入账户,密码')
             from sendCmd import deviceSend
             username, password, worker = platform_select()
@@ -178,4 +178,4 @@ def start_action():  # windows功能入口
 if __name__ == '__main__':
     start_action()
     # oringinDataFormat()
-# 打包命令pyinstaller -F -i images\favicon.ico .\main.py -n win_x64_main --collect-all grapheme --clean
+# 打包命令pyinstaller -F -i images\\favicon.ico .\\main.py -n win_x64_main --collect-all grapheme --clean

@@ -71,7 +71,7 @@ class excel:  # Excel表格处理 只支持.xlsx格式
     def save_file(self):  # 保存文件
         timeNow = time.strftime('%Y-%m-%d_%H%M%S', time.localtime(time.time()))
         filename_save = self.filename.replace('.xlsx', '')
-        filename_save = '%s_%s.xlsx' % (filename_save, timeNow)  # 返回文件名
+        filename_save = f'{filename_save}_{timeNow}.xlsx'  # 返回文件名
         self.wb_obj.save(filename_save)  # 存盘
         self.wb_obj.close()  # 关闭
         return filename_save

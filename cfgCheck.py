@@ -395,7 +395,7 @@ def _check_extra_files(fileTxt, checkItems):
     elif all(v == 0 for v in counts.values()):
         return '未匹配到'
     else:
-        return 'cc:%d,pat:%d,cfg:%d' % (counts['cc'], counts['pat'], counts['cfg'])
+        return f"cc:{counts['cc']},pat:{counts['pat']},cfg:{counts['cfg']}"
 
 
 def _check_hardware(fileTxt, checkItems):
@@ -437,7 +437,7 @@ def _check_bgp_neighbor(fileTxt, checkItems):
         r'\d+\.\d+\.\d+\.\d+(:?\s+\d+){5}\s+\S+\s+Established',
         bgpInfo.group(), re.IGNORECASE
     ))
-    return '邻居数量:%s,正常邻居数量:%d' % (bgpNum[0], normalBgpNum)
+    return f'邻居数量:{bgpNum[0]},正常邻居数量:{normalBgpNum}'
 
 
 def _check_feature_software(fileTxt, checkItems):
