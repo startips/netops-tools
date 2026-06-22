@@ -14,7 +14,6 @@ CONFIG = {
 
     # 功能1+2：提取Excel
     "target_excel_name": "NetWork Healthy Check Report(Engineer).xlsx",
-    "output_excel": "data/巡检成功数据汇总",
     "output_zip": "data/巡检数据分析汇总",  # 分片压缩输出
     "split_size": "18m",  # 分片大小
 
@@ -525,7 +524,8 @@ def merge_inspection_assets(config, extract_result=None, do_cleanup=True):
 
     # 使用 excel 模块的多sheet写入功能
     write_excel = excel(output)
-    saved_file = write_excel.excel_write_multi_sheet(sheets_data)
+    write_excel.excel_write_multi_sheet(sheets_data)  # 组装数据
+    saved_file = write_excel.save_file()               # 统一保存
 
     fail_info = f", 失败 {err_count}" if err_count else ""
     print(f"\n✅ 完成: {zip_total} 个压缩包 → {total_files} 个文件读取 → {saved_file}{fail_info}")

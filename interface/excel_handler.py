@@ -52,16 +52,13 @@ class excel:  # Excel表格处理 只支持.xlsx格式
 
     def excel_write_multi_sheet(self, sheets_data):
         """
-        写入多个sheet到一个Excel文件
+        写入多个sheet到一个Excel文件（只组装数据，由 save_file() 统一保存）
         
         Args:
             sheets_data: list of dict, 每个dict包含:
                 - title: list, 标题行
                 - data: list of list, 数据行
                 - sheetname: str, sheet名称
-        
-        Returns:
-            str: 保存后的文件名
         
         示例:
             sheets_data = [
@@ -110,14 +107,6 @@ class excel:  # Excel表格处理 只支持.xlsx格式
                         if isinstance(value, str) and key in value:
                             cell.font = red_font
                             break
-        
-        # 保存文件
-        timeNow = time.strftime('%Y-%m-%d_%H%M%S', time.localtime(time.time()))
-        filename_save = self.filename.replace('.xlsx', '')
-        filename_save = f'{filename_save}_{timeNow}.xlsx'
-        self.wb_obj.save(filename_save)
-        self.wb_obj.close()
-        return filename_save
 
     def excel_creat(self, title, sheetname='data01', sheetIndex=1):  # 创建对象并设置好列头
         self.wb_obj = Workbook()
