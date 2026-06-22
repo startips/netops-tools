@@ -118,7 +118,7 @@ def platform_select():  # 判断当前运行环境
 
 
 def start_action():  # windows功能入口
-    print('release:v1.11.1')
+    print('release:v1.11.2')
     print(
         '程序功能如下：\n'
         '1.在线配置检查（根据keyWords.txt里的关键字）\n'

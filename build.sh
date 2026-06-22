@@ -1,16 +1,16 @@
 #!/bin/bash
 # ============================================================
-#  巡检数据处理工具 - 打包脚本
+#  网络设备配置检查工具 - 打包脚本
 #  用法: bash build.sh
 # ============================================================
 
 set -e  # 出错即停
 
 # ============ 配置区 ============
-SCRIPT_FILE="mergeExcel.py"
-OUTPUT_NAME="巡检数据处理工具"
+SCRIPT_FILE="main.py"
+OUTPUT_NAME="win_x64_main"
 ICON_FILE="images/favicon.ico"
-BUILD_DIR=".venv"
+BUILD_DIR="build_env"
 
 # 颜色定义
 RED='\033[0;31m'
@@ -33,7 +33,7 @@ print_error() {
 
 # ============ 主流程 ============
 echo "=================================================="
-echo "  巡检数据处理工具 - 打包脚本"
+echo "  网络设备配置检查工具 - 打包脚本"
 echo "=================================================="
 
 # 1. 检查 Python 版本
@@ -73,26 +73,22 @@ source $BUILD_DIR/bin/activate
 # 6. 安装依赖
 print_step "安装必要依赖"
 pip install --upgrade pip -q
-pip install -q \
-    openpyxl \
-    paramiko \
-    pythonping \
-    PyYAML \
-    alive-progress \
-    pyinstaller
+pip install -q openpyxl paramiko pythonping PyYAML alive-progress pyinstaller
 
 # 7. 清理旧的构建文件
 print_step "清理旧的构建文件"
 rm -rf build/ dist/ __pycache__/
 rm -f *.spec
 
-# 8. 打包（参考你的命令，添加排除大包）
+# 8. 打包
 print_step "开始打包"
+
 pyinstaller \
     -F \
     $ICON_PARAM \
     -n "$OUTPUT_NAME" \
     --collect-all grapheme \
+    --collect-all alive_progress \
     --exclude-module pandas \
     --exclude-module numpy \
     --exclude-module matplotlib \

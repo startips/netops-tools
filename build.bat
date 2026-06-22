@@ -3,20 +3,20 @@ chcp 65001 >nul
 setlocal enabledelayedexpansion
 
 :: ============================================================
-::  巡检数据处理工具 - Windows 打包脚本
+::  网络设备配置检查工具 - Windows 打包脚本
 ::  用法: 双击 build.bat 运行
 :: ============================================================
 
 echo ==================================================
-echo   巡检数据处理工具 - 打包脚本
+echo   网络设备配置检查工具 - 打包脚本
 echo ==================================================
 echo.
 
 :: ============ 配置区 ============
-set "SCRIPT_FILE=mergeExcel.py"
-set "OUTPUT_NAME=巡检数据处理工具"
+set "SCRIPT_FILE=main.py"
+set "OUTPUT_NAME=win_x64_main"
 set "ICON_FILE=images\favicon.ico"
-set "BUILD_DIR=venv"
+set "BUILD_DIR=build_env"
 
 :: ============ 检查 Python 环境 ============
 echo [1/8] 检查 Python 环境...
@@ -88,6 +88,7 @@ pyinstaller ^
     %ICON_PARAM% ^
     -n "%OUTPUT_NAME%" ^
     --collect-all grapheme ^
+    --collect-all alive_progress ^
     --exclude-module pandas ^
     --exclude-module numpy ^
     --exclude-module matplotlib ^
