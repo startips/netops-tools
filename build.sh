@@ -10,7 +10,7 @@ set -e  # 出错即停
 SCRIPT_FILE="mergeExcel.py"
 OUTPUT_NAME="巡检数据处理工具"
 ICON_FILE="images/favicon.ico"
-BUILD_DIR="venv"
+BUILD_DIR=".venv"
 
 # 颜色定义
 RED='\033[0;31m'
