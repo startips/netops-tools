@@ -16,7 +16,7 @@ echo.
 set "SCRIPT_FILE=main.py"
 set "OUTPUT_NAME=win_x64_main"
 set "ICON_FILE=images\favicon.ico"
-set "BUILD_DIR=build_env"
+set "BUILD_DIR=venv"
 
 :: ============ 检查 Python 环境 ============
 echo [1/8] 检查 Python 环境...
