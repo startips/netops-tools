@@ -16,6 +16,29 @@ class excel:  # Excel表格处理 只支持.xlsx格式
     def __init__(self, filename):  # 初始化
         self.filename = filename  # 文件名 .xlsx
 
+    def _mark_highlight(self, ws, keywords=None, start_row=2, color="FFFF0000"):
+        """
+        标记含有关键字的单元格
+        
+        Args:
+            ws: 工作表对象
+            keywords: 关键字列表，默认 ['未通过']
+            start_row: 检查起始行，默认2（跳过标题行）
+            color: 标记颜色，默认红色
+        """
+        if keywords is None:
+            keywords = ['未通过']
+        highlight_font = Font(color=color)
+        for row in ws.iter_rows(min_row=start_row):
+            for cell in row:
+                value = cell.value
+                if value is None:
+                    continue
+                for key in keywords:
+                    if isinstance(value, str) and key in value:
+                        cell.font = highlight_font
+                        break
+
     # 写入数据
     def excel_write(self, title, data, sheetname='data01', sheetIndex=1):  # 一次性写入 data 格式为[[],[]]
         self.wb_obj = Workbook()
@@ -36,19 +59,7 @@ class excel:  # Excel表格处理 只支持.xlsx格式
             except Exception:
                 for row in row_data:
                     wsObj.append(row)
-        ###标记颜色
-        red_font = Font(color="FFFF0000")
-        for row in wsObj.iter_rows(min_row=2):  # 从第2行开始（跳过标题）
-            for cell in row:
-                value = cell.value
-                if value is None:
-                    continue
-                # 规则
-                # print(value)
-                for key in ['未通过']:
-                    if isinstance(value, str) and key in value:  # 只对字符串格式做判断
-                        cell.font = red_font
-                        break
+        self._mark_highlight(wsObj)
 
     def excel_write_multi_sheet(self, sheets_data):
         """
@@ -72,7 +83,6 @@ class excel:  # Excel表格处理 只支持.xlsx格式
             del self.wb_obj['Sheet']
         
         title_font = Font(b='bold', size='12')
-        red_font = Font(color="FFFF0000")
         
         for idx, sheet_info in enumerate(sheets_data):
             title = sheet_info.get('title', [])
@@ -97,16 +107,8 @@ class excel:  # Excel表格处理 只支持.xlsx格式
                     for row in row_data:
                         ws.append(row)
             
-            # 标记颜色（包含"未通过"的单元格标红）
-            for row in ws.iter_rows(min_row=2):
-                for cell in row:
-                    value = cell.value
-                    if value is None:
-                        continue
-                    for key in ['未通过']:
-                        if isinstance(value, str) and key in value:
-                            cell.font = red_font
-                            break
+            # 标记颜色
+            self._mark_highlight(ws)
 
     def excel_creat(self, title, sheetname='data01', sheetIndex=1):  # 创建对象并设置好列头
         self.wb_obj = Workbook()
