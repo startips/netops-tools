@@ -17,6 +17,7 @@ set "SCRIPT_FILE=main.py"
 set "OUTPUT_NAME=win_x64_main"
 set "ICON_FILE=images\favicon.ico"
 set "BUILD_DIR=.venv"
+set "REQUIREMENTS=requirements-mac.txt"
 
 :: ============ 检查 Python 环境 ============
 echo [1/8] 检查 Python 环境...
@@ -68,7 +69,14 @@ call %BUILD_DIR%\Scripts\activate.bat
 echo.
 echo [6/8] 安装必要依赖...
 pip install --upgrade pip -q
-pip install -q openpyxl paramiko pythonping PyYAML alive-progress pyinstaller
+if exist "%REQUIREMENTS%" (
+    echo 从 %REQUIREMENTS% 安装依赖...
+    pip install -r %REQUIREMENTS% -q
+) else (
+    echo [警告] 找不到 %REQUIREMENTS%，手动安装依赖...
+    pip install -q openpyxl paramiko pythonping PyYAML alive-progress
+)
+pip install -q pyinstaller
 
 :: ============ 清理旧的构建文件 ============
 echo.
@@ -96,11 +104,6 @@ pyinstaller ^
     --exclude-module PyQt5 ^
     --exclude-module PyQt6 ^
     --exclude-module tkinter ^
-    --exclude-module test ^
-    --exclude-module unittest ^
-    --exclude-module xml ^
-    --exclude-module pydoc ^
-    --exclude-module doctest ^
     --clean ^
     %SCRIPT_FILE%
 

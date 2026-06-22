@@ -11,6 +11,7 @@ SCRIPT_FILE="main.py"
 OUTPUT_NAME="win_x64_main"
 ICON_FILE="images/favicon.ico"
 BUILD_DIR="venv"
+REQUIREMENTS="requirements-mac.txt"
 
 # 颜色定义
 RED='\033[0;31m'
@@ -73,7 +74,14 @@ source $BUILD_DIR/bin/activate
 # 6. 安装依赖
 print_step "安装必要依赖"
 pip install --upgrade pip -q
-pip install -q openpyxl paramiko pythonping PyYAML alive-progress pyinstaller
+if [ -f "$REQUIREMENTS" ]; then
+    echo "从 $REQUIREMENTS 安装依赖..."
+    pip install -r $REQUIREMENTS -q
+else
+    print_warn "找不到 $REQUIREMENTS，手动安装依赖..."
+    pip install -q openpyxl paramiko pythonping PyYAML alive-progress
+fi
+pip install -q pyinstaller
 
 # 7. 清理旧的构建文件
 print_step "清理旧的构建文件"
@@ -95,12 +103,6 @@ pyinstaller \
     --exclude-module scipy \
     --exclude-module PyQt5 \
     --exclude-module PyQt6 \
-    --exclude-module tkinter \
-    --exclude-module test \
-    --exclude-module unittest \
-    --exclude-module xml \
-    --exclude-module pydoc \
-    --exclude-module doctest \
     --clean \
     $SCRIPT_FILE
 
