@@ -10,7 +10,7 @@ set -e  # 出错即停
 SCRIPT_FILE="main.py"
 OUTPUT_NAME="win_x64_main"
 ICON_FILE="images/favicon.ico"
-BUILD_DIR=".venv"
+BUILD_DIR="venv"
 
 # 颜色定义
 RED='\033[0;31m'
@@ -98,7 +98,6 @@ pyinstaller \
     --exclude-module tkinter \
     --exclude-module test \
     --exclude-module unittest \
-    --exclude-module email \
     --exclude-module xml \
     --exclude-module pydoc \
     --exclude-module doctest \

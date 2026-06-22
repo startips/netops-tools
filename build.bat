@@ -16,7 +16,7 @@ echo.
 set "SCRIPT_FILE=main.py"
 set "OUTPUT_NAME=win_x64_main"
 set "ICON_FILE=images\favicon.ico"
-set "BUILD_DIR=venv"
+set "BUILD_DIR=.venv"
 
 :: ============ 检查 Python 环境 ============
 echo [1/8] 检查 Python 环境...
@@ -98,7 +98,6 @@ pyinstaller ^
     --exclude-module tkinter ^
     --exclude-module test ^
     --exclude-module unittest ^
-    --exclude-module email ^
     --exclude-module xml ^
     --exclude-module pydoc ^
     --exclude-module doctest ^
