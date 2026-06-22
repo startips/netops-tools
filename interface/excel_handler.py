@@ -137,11 +137,14 @@ class excel:  # Excel表格处理 只支持.xlsx格式
         return filename_save
 
     # 读取数据 默认打开第一个sheet从第二行读
-    def excel_read(self, sheetnum=1, row=0, column=0, row_start=2, column_start=1):
+    def excel_read(self, sheet=1, row=0, column=0, row_start=2, column_start=1):
         file_local = self.filename
         wb = load_workbook(filename=file_local, data_only=True)  # 打开一个excel对象
         sheetnames = wb.sheetnames  # 获取sheets
-        ws = wb[sheetnames[sheetnum - 1]]  # 打开第X个sheet
+        if isinstance(sheet, int):
+            ws = wb[sheetnames[sheet - 1]]  # 按序号（从1开始）
+        else:
+            ws = wb[sheet]  # 按名字
         row_start_local = row_start  # 起始行
         column_start_local = column_start  # 起始列
         if row == 0:
@@ -164,12 +167,12 @@ class excel:  # Excel表格处理 只支持.xlsx格式
         sheetNums = self.wb.sheetnames
         return sheetNums
 
-    def excelReadSheet(self, sheetnum=1, row=0, column=0, row_start=2, column_start=1):  # 读取一个sheet
+    def excelReadSheet(self, sheet=1, row=0, column=0, row_start=2, column_start=1):  # 读取一个sheet
         sheetnames = self.wb.sheetnames  # 获取sheets
-        if isinstance(sheetnum, int):
-            ws = self.wb[sheetnames[sheetnum - 1]]  # 打开第X个sheet
+        if isinstance(sheet, int):
+            ws = self.wb[sheetnames[sheet - 1]]  # 按序号（从1开始）
         else:
-            ws = self.wb[sheetnum]  # 直接用名字打开表格
+            ws = self.wb[sheet]  # 按名字
         row_start_local = row_start  # 起始行
         column_start_local = column_start  # 起始列
         if row == 0:

@@ -284,7 +284,7 @@ def mergeOriginalData(config):
             continue
         sheet_done += 1
         print(f"\r  [{sheet_done}/{sheet_count}] 读取sheet...", end="", flush=True)
-        res = open_excel.excelReadSheet(sheetnum=sheet_name, column=5)
+        res = open_excel.excelReadSheet(sheet=sheet_name, column=5)
         data.extend(res)
 
     print()
@@ -482,7 +482,7 @@ def merge_inspection_assets(config, extract_result=None, do_cleanup=True):
                             read_excel = excel(filepath)
                             read_excel.excelReadCread()  # 打开Excel对象
                             data = read_excel.excelReadSheet(
-                                sheetnum=task["sheet_name"],
+                                sheet=task["sheet_name"],
                                 row_start=row_start
                             )
                             read_excel.excelClose()  # 关闭Excel对象
