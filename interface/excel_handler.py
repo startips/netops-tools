@@ -50,6 +50,75 @@ class excel:  # Excel表格处理 只支持.xlsx格式
                         cell.font = red_font
                         break
 
+    def excel_write_multi_sheet(self, sheets_data):
+        """
+        写入多个sheet到一个Excel文件
+        
+        Args:
+            sheets_data: list of dict, 每个dict包含:
+                - title: list, 标题行
+                - data: list of list, 数据行
+                - sheetname: str, sheet名称
+        
+        Returns:
+            str: 保存后的文件名
+        
+        示例:
+            sheets_data = [
+                {'title': ['列1', '列2'], 'data': [['a', 'b'], ['c', 'd']], 'sheetname': 'Sheet1'},
+                {'title': ['列A', '列B'], 'data': [['x', 'y']], 'sheetname': 'Sheet2'},
+            ]
+        """
+        self.wb_obj = Workbook()
+        # 删除默认创建的 sheet
+        if 'Sheet' in self.wb_obj.sheetnames:
+            del self.wb_obj['Sheet']
+        
+        title_font = Font(b='bold', size='12')
+        red_font = Font(color="FFFF0000")
+        
+        for idx, sheet_info in enumerate(sheets_data):
+            title = sheet_info.get('title', [])
+            data = sheet_info.get('data', [])
+            sheetname = sheet_info.get('sheetname', f'Sheet{idx + 1}')
+            
+            # 创建新 sheet
+            ws = self.wb_obj.create_sheet(sheetname, idx)
+            
+            # 写入标题
+            if title:
+                ws.append(title)
+                for i in range(1, len(title) + 1):
+                    cell = ws.cell(row=1, column=i)
+                    cell.font = title_font
+            
+            # 写入数据
+            for row_data in data:
+                try:
+                    ws.append(row_data)
+                except Exception:
+                    for row in row_data:
+                        ws.append(row)
+            
+            # 标记颜色（包含"未通过"的单元格标红）
+            for row in ws.iter_rows(min_row=2):
+                for cell in row:
+                    value = cell.value
+                    if value is None:
+                        continue
+                    for key in ['未通过']:
+                        if isinstance(value, str) and key in value:
+                            cell.font = red_font
+                            break
+        
+        # 保存文件
+        timeNow = time.strftime('%Y-%m-%d_%H%M%S', time.localtime(time.time()))
+        filename_save = self.filename.replace('.xlsx', '')
+        filename_save = f'{filename_save}_{timeNow}.xlsx'
+        self.wb_obj.save(filename_save)
+        self.wb_obj.close()
+        return filename_save
+
     def excel_creat(self, title, sheetname='data01', sheetIndex=1):  # 创建对象并设置好列头
         self.wb_obj = Workbook()
         self.wb_obj.active
