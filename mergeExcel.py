@@ -319,6 +319,23 @@ def merge_zip_txt_files(config, extract_result=None, do_cleanup=True):
     target_path = Path(output_dir).resolve()
     temp_extract_path = Path(temp_dir)
 
+    def _rename_config_file(original_name):
+        """重命名配置文件：去掉'设备配置_'前缀，IP部分 - 改 ."""
+        name = original_name
+        # 去掉 设备配置_ 前缀
+        if name.startswith("设备配置_"):
+            name = name[len("设备配置_"):]
+        # 去掉 .txt 后缀
+        if name.endswith(".txt"):
+            name = name[:-4]
+        # 按 _ 分割，最后一段是 IP，把 - 改成 .
+        parts = name.rsplit("_", 1)  # 从右边分割一次
+        if len(parts) == 2:
+            device, ip = parts
+            ip = ip.replace("-", ".")
+            return f"{device}_{ip}.txt"
+        return original_name  # 格式不匹配就返回原名
+
     target_path.mkdir(parents=True, exist_ok=True)
 
     zip_files = list(base_path.glob("*.zip"))
@@ -354,7 +371,8 @@ def merge_zip_txt_files(config, extract_result=None, do_cleanup=True):
                     if cfg_dir.exists():
                         txt_files = list(cfg_dir.glob("*.txt"))
                         for txt_file in txt_files:
-                            shutil.move(str(txt_file), str(target_path / txt_file.name))
+                            new_name = _rename_config_file(txt_file.name)
+                            shutil.move(str(txt_file), str(target_path / new_name))
                         total_count += len(txt_files)
                     else:
                         skip_count += 1
@@ -371,7 +389,8 @@ def merge_zip_txt_files(config, extract_result=None, do_cleanup=True):
         for cfg_dir in cfg_dirs:
             txt_files = list(cfg_dir.glob("*.txt"))
             for txt_file in txt_files:
-                shutil.move(str(txt_file), str(target_path / txt_file.name))
+                new_name = _rename_config_file(txt_file.name)
+                shutil.move(str(txt_file), str(target_path / new_name))
             total_count += len(txt_files)
         if not cfg_dirs:
             skip_count = len([f for f in temp_extract_path.iterdir() if f.is_dir()])
