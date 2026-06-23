@@ -40,7 +40,7 @@ class excel:  # Excel表格处理 只支持.xlsx格式
                         break
 
     # 写入数据
-    def excel_write(self, title, data, sheetname='data01', sheetIndex=1):  # 一次性写入 data 格式为[[],[]]
+    def excel_write(self, title, data, sheetname='data01', sheetIndex=1, highlight=False):  # 一次性写入 data 格式为[[],[]]
         self.wb_obj = Workbook()
         self.wb_obj.active
         title_local = title  # 标题 list
@@ -59,9 +59,10 @@ class excel:  # Excel表格处理 只支持.xlsx格式
             except Exception:
                 for row in row_data:
                     wsObj.append(row)
-        self._mark_highlight(wsObj)
+        if highlight:
+            self._mark_highlight(wsObj)
 
-    def excel_write_multi_sheet(self, sheets_data):
+    def excel_write_multi_sheet(self, sheets_data, highlight=False):
         """
         写入多个sheet到一个Excel文件（只组装数据，由 save_file() 统一保存）
         
@@ -70,11 +71,13 @@ class excel:  # Excel表格处理 只支持.xlsx格式
                 - title: list, 标题行
                 - data: list of list, 数据行
                 - sheetname: str, sheet名称
+                - highlight: bool, 是否高亮标记（可选，默认跟随函数参数）
+            highlight: bool, 全局默认是否高亮标记，默认False
         
         示例:
             sheets_data = [
                 {'title': ['列1', '列2'], 'data': [['a', 'b'], ['c', 'd']], 'sheetname': 'Sheet1'},
-                {'title': ['列A', '列B'], 'data': [['x', 'y']], 'sheetname': 'Sheet2'},
+                {'title': ['列A', '列B'], 'data': [['x', 'y']], 'sheetname': 'Sheet2', 'highlight': True},
             ]
         """
         self.wb_obj = Workbook()
@@ -88,6 +91,8 @@ class excel:  # Excel表格处理 只支持.xlsx格式
             title = sheet_info.get('title', [])
             data = sheet_info.get('data', [])
             sheetname = sheet_info.get('sheetname', f'Sheet{idx + 1}')
+            # 优先用 sheet 自己的配置，没有就用函数参数的默认值
+            sheet_highlight = sheet_info.get('highlight', highlight)
             
             # 创建新 sheet
             ws = self.wb_obj.create_sheet(sheetname, idx)
@@ -107,8 +112,9 @@ class excel:  # Excel表格处理 只支持.xlsx格式
                     for row in row_data:
                         ws.append(row)
             
-            # 标记颜色
-            self._mark_highlight(ws)
+            # 标记颜色（按 sheet 单独控制）
+            if sheet_highlight:
+                self._mark_highlight(ws)
 
     def excel_creat(self, title, sheetname='data01', sheetIndex=1):  # 创建对象并设置好列头
         self.wb_obj = Workbook()

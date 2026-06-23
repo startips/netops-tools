@@ -132,7 +132,7 @@ def extract_all_zips(config, force_extract=False):
     target_name = config["target_excel_name"]
 
     extracted_files = []
-    
+
     # 检查临时目录是否已存在且有内容
     if os.path.exists(temp_dir) and os.listdir(temp_dir) and not force_extract:
         print(f"📁 临时目录已存在，跳过解压: {temp_dir}")
@@ -148,7 +148,7 @@ def extract_all_zips(config, force_extract=False):
                     extracted_files.append((file_path, new_name))
         print(f"📋 找到 {len(extracted_files)} 个Excel文件")
         return {"excel_files": extracted_files, "zip_count": len(zip_files), "temp_dir": temp_dir}
-    
+
     # 需要解压
     if not os.path.exists(temp_dir):
         os.makedirs(temp_dir)
@@ -240,7 +240,8 @@ def collect_and_split_zip(config, extract_result=None, do_cleanup=True):
     try:
         result = subprocess.run(zip_cmd, capture_output=True, text=True)
         if result.returncode == 0:
-            print(f"✅ 完成: {zip_total} 个压缩包 → {len(extracted_files)} 个Excel → {output_zip_abs}.zip (分片: {split_size})")
+            print(
+                f"✅ 完成: {zip_total} 个压缩包 → {len(extracted_files)} 个Excel → {output_zip_abs}.zip (分片: {split_size})")
         else:
             print(f"❌ 压缩失败 (返回码: {result.returncode})")
             print(f"   stderr: {result.stderr}")
@@ -414,8 +415,8 @@ def merge_inspection_assets(config, extract_result=None, do_cleanup=True):
             "name": "网元版本信息",
             "file_pattern": "设备版本报告",
             "sheet_name": "网元版本信息",
-            "header_row": 2,    # 表头在第2行
-            "data_start": 3,    # 数据从第3行开始
+            "header_row": 2,  # 表头在第2行
+            "data_start": 3,  # 数据从第3行开始
             "data": [],
             "first_file": True  # 标记是否是第一个文件
         },
@@ -423,8 +424,8 @@ def merge_inspection_assets(config, extract_result=None, do_cleanup=True):
             "name": "网元结果",
             "file_pattern": "设备SN清单",
             "sheet_name": "网元结果",
-            "header_row": 1,    # 表头在第1行
-            "data_start": 2,    # 数据从第2行开始
+            "header_row": 1,  # 表头在第1行
+            "data_start": 2,  # 数据从第2行开始
             "data": [],
             "first_file": True
         },
@@ -524,8 +525,8 @@ def merge_inspection_assets(config, extract_result=None, do_cleanup=True):
 
     # 使用 excel 模块的多sheet写入功能
     write_excel = excel(output)
-    write_excel.excel_write_multi_sheet(sheets_data)  # 组装数据
-    saved_file = write_excel.save_file()               # 统一保存
+    write_excel.excel_write_multi_sheet(sheets_data, highlight=False)  # 组装数据
+    saved_file = write_excel.save_file()  # 统一保存
 
     fail_info = f", 失败 {err_count}" if err_count else ""
     print(f"\n✅ 完成: {zip_total} 个压缩包 → {total_files} 个文件读取 → {saved_file}{fail_info}")

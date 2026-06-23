@@ -69,13 +69,13 @@ def oringinDataFormat():  # 原始数据分类
     return read_info
 
 
-def writeToExcel(filename, title, data):  # 写入数据到excel
+def writeToExcel(filename, title, data, highlight=False):  # 写入数据到excel
     filename_local = os.path.join(_base_dir, 'data', filename)
     title_local = title
     data_local = data
     write_info = excel(filename_local)
     try:
-        write_info.excel_write(title_local, data_local)
+        write_info.excel_write(title_local, data_local, highlight=highlight)
         basename = write_info.save_file()
         logger.info(f'文件 {basename} 写入完成,保存至data目录下')
     except Exception as e:
@@ -142,7 +142,7 @@ def start_action():  # windows功能入口
             print('1).确认IP等信息已填入read\\devices_ip.xlsx\n'
                   '2).确认检查关键字已填入read\\keyWords.txt\n'
                   '3).输入账户,密码')
-            from checkConfig import deviceCheck
+            from checkConfigOnline import deviceCheck
             username, password, worker = platform_select()
             data = funcAction(deviceCheck, savename, fileName=fileName,
                               user=username, passwd=password, worker=worker)
@@ -153,7 +153,7 @@ def start_action():  # windows功能入口
             title = get_check_title()
             savename = '状态检查结果'
             data = funcAction(deviceCheck, savename, data=oringinDataFormat(), worker=10)
-            writeToExcel(savename, title, data)
+            writeToExcel(savename, title, data, highlight=True)
             break
         if functionSelect == '3':
             fileName = 'devices_ip.xlsx'
