@@ -23,6 +23,7 @@ class autoThreadingPool():  # 线程池
             return []
         func_local = func  # function
         datalist_local = datalist  # data
+        self.result = []  # 每次调用重置结果
         with futures.ThreadPoolExecutor(max_workers=self.worker_local) as executor:  # max_workers 线程池的数量
             future_list = []
             for row in datalist_local:
@@ -30,7 +31,7 @@ class autoThreadingPool():  # 线程池
                 future_list.append(future)
             unit = 0.8 / len(future_list)
             num = 0.1
-            for future in futures.as_completed(future_list):
+            for future in future_list:  # 按提交顺序获取结果
                 try:
                     res = future.result()
                     self.result.append(res)
