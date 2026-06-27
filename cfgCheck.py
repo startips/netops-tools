@@ -104,7 +104,10 @@ def _load_version_patch_map():
     try:
         xl = excel(os.path.join(_base_dir, 'read', '版本补丁.xlsx'))
         xl.excelReadCread()  # 初始化 workbook 对象
-        data = xl.excelReadSheet(sheet='版本补丁推荐（季度）')
+        try:
+            data = xl.excelReadSheet(sheet='版本补丁推荐（季度）')
+        finally:
+            xl.excelClose()
     except Exception as e:
         logger.error('读取版本补丁.xlsx 失败: %s', e)
         raise RuntimeError(f'读取版本补丁.xlsx 失败: {e}')

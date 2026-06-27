@@ -31,7 +31,6 @@ def ping_check(ip, count=4, size=64):  # 返回延迟ms以及丢包率 linux需�
     loss_num = 'None'  # 丢包数量
     ping_result = ping(ip_local, count=count_local, size=size_local)
     ping_result = str(ping_result)
-    print(ping_result)
     loss_info = re.findall('timed out', ping_result)
     loss_num = len(loss_info)
     if loss_num < count_local:
