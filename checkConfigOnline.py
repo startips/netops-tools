@@ -40,10 +40,9 @@ def infoDeal(data):  # 数据处理 返回list
                     checkRes = f'缺少\'{keywords[1]}\':{keywords[0]}\n'
                     result_dic.update({keywords[1]: result_dic[keywords[1]] + checkRes})
                     logger.warning(f'发现缺少配置: 分类={keywords[1]}, 关键字={keywords[0]}')
-        else:
-            for key in result_dic:
-                if result_dic[key] == '':
-                    result_dic.update({key: '无不合规项'})
+        for key in result_dic:
+            if result_dic[key] == '':
+                result_dic.update({key: '无不合规项'})
     else:
         logger.error(f'命令执行报错: {revInfo}')
         result.append(revInfo)
