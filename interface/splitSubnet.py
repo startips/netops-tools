@@ -42,7 +42,7 @@ def listReset(list):  # list重新排序 132465
         index += 1
         try:
             list_local[index], list_local[index + 1] = list_local[index + 1], list_local[index]
-        except:
+        except IndexError:
             break
     return list_local
 

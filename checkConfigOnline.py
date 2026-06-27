@@ -20,7 +20,7 @@ def infoDeal(data):  # 数据处理 返回list
     data_local = data
     result_dic = {}
     result = []
-    readInfo = readTxt(os.path.join(_base_dir, 'read', 'Keywords.txt'))  # 读取匹配关键字
+    readInfo = readTxt(os.path.join(_base_dir, 'read', 'keyWords.txt'))  # 读取匹配关键字
     logger.info(f'成功加载关键字 {len(readInfo)} 条')
     for i in readInfo:
         cell = i.split(',')

@@ -46,7 +46,7 @@ def extract_zip_with_chinese(zip_path, target_dir):
         for member in zip_ref.namelist():
             try:
                 filename = member.encode('cp437').decode('gbk')
-            except:
+            except (UnicodeDecodeError, UnicodeEncodeError):
                 filename = member
 
             dest_path = os.path.join(target_dir, filename)
@@ -359,7 +359,7 @@ def merge_zip_txt_files(config, extract_result=None, do_cleanup=True):
                     for file_info in zip_ref.infolist():
                         try:
                             file_info.filename = file_info.filename.encode('cp437').decode('gbk')
-                        except:
+                        except (UnicodeDecodeError, UnicodeEncodeError):
                             pass
                         zip_ref.extract(file_info, temp_extract_path)
 
