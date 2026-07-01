@@ -45,7 +45,7 @@ settings:
 
 sections:
   - name: '端口配置'
-    regex: 'interface (?:MEth|Eth-Trunk|\S+GE|LoopBack|NULL)[\s\S]*?\n#'
+    regex: 'interface (?:MEth|Eth-Trunk|\S+GE|Vlanif|LoopBack|NULL|Tunnel|Nve|Vbdif|Serial|Mp-group|Pos|Cpos|Cellular|Virtual-Ethernet|XGigabitEthernet|GigabitEthernet)[\s\S]*?\n#'
     split_by: '^interface '
 
   - name: 'BGP配置'
@@ -59,6 +59,10 @@ sections:
   - name: 'ipv4-family实例'
     regex: 'ipv4-family vpn-instance[\s\S]*?#'
     split_by: '^ipv4-family vpn-instance'
+
+  - name: 'ipv6-family单播'
+    regex: 'ipv6-family unicast[\s\S]*?#'
+    split_by: '^ipv6-family unicast'
 
   - name: 'ipv6-family实例'
     regex: 'ipv6-family vpn-instance[\s\S]*?#'

@@ -398,8 +398,7 @@ def apply_ignore(config_data, ignore_rules, model=None, version=None):
                         break
                 if not skip:
                     kept.append(line)
-            if kept:
-                result['sections'][cat_name][header] = kept
+            result['sections'][cat_name][header] = kept
 
     logger.debug('忽略规则应用完成: 全局行 %d, 段落分类 %d', len(result['global']), len(result['sections']))
     return result
@@ -529,12 +528,22 @@ def compare_configs(intended, actual, model=None, version=None):
 
         missing_h = {}
         extra_h = {}
+        missing_whole = []   # 整段缺失：预期有 header、采集侧无
+        extra_whole = []     # 整段多余：采集有 header、预期侧无
         for lh in sorted(all_headers):
             i_h = i_header_map.get(lh)
             a_h = a_header_map.get(lh)
+            # 整段缺失/多余单独标记，避免降级为逐行差异造成误报
+            if i_h and not a_h:
+                missing_whole.append(i_h)
+                continue
+            if a_h and not i_h:
+                extra_whole.append(a_h)
+                continue
+            # 两侧都有该 header，才做段内逐行对比
             miss, extr = _ci_diff(
-                i_sub.get(i_h, []) if i_h else [],
-                a_sub.get(a_h, []) if a_h else []
+                i_sub.get(i_h, []),
+                a_sub.get(a_h, []),
             )
             # 用预期的标题名，没有则用实际的
             h = i_h or a_h
@@ -547,6 +556,10 @@ def compare_configs(intended, actual, model=None, version=None):
             cat_diffs['missing_headers'] = missing_h
         if extra_h:
             cat_diffs['extra_headers'] = extra_h
+        if missing_whole:
+            cat_diffs['missing_whole'] = sorted(missing_whole)
+        if extra_whole:
+            cat_diffs['extra_whole'] = sorted(extra_whole)
 
         if cat_diffs:
             result['diffs'][cat] = cat_diffs
@@ -616,6 +629,8 @@ def generate_report(results, timestamp):
             len(v.get('missing', [])) + len(v.get('extra', []))
             + sum(len(x) for x in v.get('missing_headers', {}).values())
             + sum(len(x) for x in v.get('extra_headers', {}).values())
+            + len(v.get('missing_whole', []))
+            + len(v.get('extra_whole', []))
             for v in diffs.values()
         )
         total_diffs += count
@@ -667,6 +682,8 @@ def generate_report(results, timestamp):
             len(v.get('missing', [])) + len(v.get('extra', []))
             + sum(len(x) for x in v.get('missing_headers', {}).values())
             + sum(len(x) for x in v.get('extra_headers', {}).values())
+            + len(v.get('missing_whole', []))
+            + len(v.get('extra_whole', []))
             for v in diffs.values()
         )
         lines.append(f'### {dev_name}  [{model}]  [{version}]  ({count} 处)\n')
@@ -687,6 +704,12 @@ def generate_report(results, timestamp):
                     lines.append(f'    - `[缺失] {ml}`')
                 for el in d.get('extra_headers', {}).get(h, []):
                     lines.append(f'    - `[多余] {el}`')
+
+            # 整段缺失/多余（一侧 header 整个不存在）
+            for h in d.get('missing_whole', []):
+                lines.append(f'  - `[整段缺失] {h}`')
+            for h in d.get('extra_whole', []):
+                lines.append(f'  - `[整段多余] {h}`')
 
             # 全局差异
             for ml in d.get('missing', []):
@@ -731,6 +754,8 @@ def generate_txt_report(results, timestamp):
             len(v.get('missing', [])) + len(v.get('extra', []))
             + sum(len(x) for x in v.get('missing_headers', {}).values())
             + sum(len(x) for x in v.get('extra_headers', {}).values())
+            + len(v.get('missing_whole', []))
+            + len(v.get('extra_whole', []))
             for v in diffs.values()
         )
         lines.append(f'  {dev_name}  [{model}]  [{version}]  差异: {count}')
@@ -756,6 +781,8 @@ def generate_txt_report(results, timestamp):
             len(v.get('missing', [])) + len(v.get('extra', []))
             + sum(len(x) for x in v.get('missing_headers', {}).values())
             + sum(len(x) for x in v.get('extra_headers', {}).values())
+            + len(v.get('missing_whole', []))
+            + len(v.get('extra_whole', []))
             for v in diffs.values()
         )
         lines.append(f'\n--- {dev_name}  [{model}]  [{version}]  ({count} 处) ---')
@@ -776,6 +803,12 @@ def generate_txt_report(results, timestamp):
                     lines.append(f'      [缺失] {ml}')
                 for el in d.get('extra_headers', {}).get(h, []):
                     lines.append(f'      [多余] {el}')
+
+            # 整段缺失/多余（一侧 header 整个不存在）
+            for h in d.get('missing_whole', []):
+                lines.append(f'    [整段缺失] {h}')
+            for h in d.get('extra_whole', []):
+                lines.append(f'    [整段多余] {h}')
 
             # 全局差异
             for ml in d.get('missing', []):
@@ -894,6 +927,8 @@ def main():
                     len(v.get('missing', [])) + len(v.get('extra', []))
                     + sum(len(x) for x in v.get('missing_headers', {}).values())
                     + sum(len(x) for x in v.get('extra_headers', {}).values())
+                    + len(v.get('missing_whole', []))
+                    + len(v.get('extra_whole', []))
                     for v in result.get('diffs', {}).values()
                 )
                 bar.text = f'✅ {name}: {diff_count} 处差异'
