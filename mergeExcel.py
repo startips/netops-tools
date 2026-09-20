@@ -1,4 +1,6 @@
 import os
+import re
+import glob
 import zipfile
 import shutil
 import subprocess
@@ -10,7 +12,7 @@ from interface import excel
 # ============ 配置区（只改这里）============
 CONFIG = {
     # 源数据目录
-    "source_dir": "/Users/shadowx/Documents/招行/巡检/2026Q2/巡检报告数据",
+    "source_dir": "/Users/shadowx/Documents/招行/巡检/2026Q3/巡检报告数据",
 
     # 功能1+2：提取Excel
     "target_excel_name": "NetWork Healthy Check Report(Engineer).xlsx",
@@ -18,7 +20,7 @@ CONFIG = {
     "split_size": "18m",  # 分片大小
 
     # 功能2：汇总原始数据
-    "source_file": "/Users/shadowx/Documents/招行/巡检/2026Q2/巡检设备清单汇总20260603更新.xlsx",
+    "source_file": "/Users/shadowx/Documents/招行/巡检/2026Q3/巡检设备清单汇总20260907更新.xlsx",
     "output_original": "data/巡检原始数据汇总",
 
     # 功能3：提取配置文件
@@ -28,7 +30,7 @@ CONFIG = {
     "output_assets": "data/巡检资产汇总",
 
     # 临时目录（统一管理）
-    "temp_dir": "/Users/shadowx/Documents/招行/巡检/2026Q2/temp_extract",
+    "temp_dir": "/Users/shadowx/Documents/招行/巡检/2026Q3/temp_extract",
 }
 
 
@@ -106,6 +108,68 @@ def read_xls_file(filepath, sheet_name, header_row=0):
     except Exception as e:
         print(f"  ⚠️ 读取 {filepath} 失败: {e}")
         return []
+
+
+def split_multi_esn_rows(raw_data):
+    """
+    针对网元版本信息表，当 ESN 号列中存在多个 ESN（以逗号、换行等分隔）时，
+    拆分为多行，每行保留其他字段并分别填入单个 ESN。
+
+    Args:
+        raw_data: list of list，第一行为表头，后续行为数据
+
+    Returns:
+        tuple: (new_data, dict with split_rows and added_rows)
+    """
+    if not raw_data or len(raw_data) <= 1:
+        return raw_data, {"split_rows": 0, "added_rows": 0}
+
+    header = raw_data[0]
+    data_rows = raw_data[1:]
+
+    # 动态定位 ESN 列
+    esn_col_idx = -1
+    for idx, col_name in enumerate(header):
+        if col_name and "esn" in str(col_name).lower():
+            esn_col_idx = idx
+            break
+
+    if esn_col_idx == -1:
+        return raw_data, {"split_rows": 0, "added_rows": 0}
+
+    new_data = [header]
+    split_rows = 0
+    added_rows = 0
+
+    for row in data_rows:
+        if esn_col_idx >= len(row):
+            new_data.append(row)
+            continue
+
+        esn_val = row[esn_col_idx]
+        if esn_val is None:
+            new_data.append(row)
+            continue
+
+        esn_str = str(esn_val).strip()
+        # 兼容英文逗号、中文逗号、分号、换行符、顿号等常见分隔符
+        esn_list = [e.strip() for e in re.split(r'[,，;；\n\r\t、]+', esn_str) if e.strip()]
+
+        if len(esn_list) > 1:
+            split_rows += 1
+            added_rows += len(esn_list) - 1
+            for single_esn in esn_list:
+                new_row = list(row)
+                new_row[esn_col_idx] = single_esn
+                new_data.append(new_row)
+        elif len(esn_list) == 1:
+            new_row = list(row)
+            new_row[esn_col_idx] = esn_list[0]
+            new_data.append(new_row)
+        else:
+            new_data.append(row)
+
+    return new_data, {"split_rows": split_rows, "added_rows": added_rows}
 
 
 # ==========================================
@@ -227,24 +291,74 @@ def collect_and_split_zip(config, extract_result=None, do_cleanup=True):
     if output_dir and not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    for ext in ['.zip', '.z01', '.z02', '.z03', '.z04', '.z05']:
-        old_file = f"{output_zip_abs}{ext}"
+    # 清理所有可能存在的旧输出文件（包括 .zip 以及所有 .z01, .z02 等分卷）
+    old_files = set(glob.glob(f"{output_zip_abs}.z*") + [f"{output_zip_abs}.zip", f"{output_zip_abs}_temp.zip"])
+    for old_file in old_files:
         if os.path.exists(old_file):
             os.remove(old_file)
+
+    def _parse_size_bytes(s):
+        s = s.strip().lower()
+        units = {'k': 1024, 'm': 1024 * 1024, 'g': 1024 * 1024 * 1024}
+        for u, mul in units.items():
+            if s.endswith(u):
+                return int(float(s[:-1]) * mul)
+        return int(s)
 
     original_dir = os.getcwd()
     os.chdir(collect_dir)
 
-    zip_cmd = ["zip", "-s", split_size, "-r", f"{output_zip_abs}.zip", "."]
+    temp_zip = f"{output_zip_abs}_temp.zip"
+    final_zip = f"{output_zip_abs}.zip"
 
     try:
+        # 1. 先进行标准压缩（生成完整的单文件 ZIP）
+        zip_cmd = ["zip", "-r", temp_zip, "."]
         result = subprocess.run(zip_cmd, capture_output=True, text=True)
-        if result.returncode == 0:
-            print(
-                f"✅ 完成: {zip_total} 个压缩包 → {len(extracted_files)} 个Excel → {output_zip_abs}.zip (分片: {split_size})")
-        else:
+        if result.returncode != 0:
             print(f"❌ 压缩失败 (返回码: {result.returncode})")
             print(f"   stderr: {result.stderr}")
+            return
+
+        total_size = os.path.getsize(temp_zip)
+        max_bytes = _parse_size_bytes(split_size)
+
+        # 2. 判断是否超过分片大小
+        if total_size <= max_bytes:
+            # 未超过阈值：直接使用标准 ZIP（macOS / Windows 双击原生直接打开）
+            os.replace(temp_zip, final_zip)
+            size_mb = total_size / (1024 * 1024)
+            print(
+                f"✅ 完成: {zip_total} 个压缩包 → {len(extracted_files)} 个Excel → {final_zip}\n"
+                f"   (大小: {size_mb:.1f}MB，未超过阈值 {split_size}，已保存为标准 ZIP，可直接双击解压)"
+            )
+        else:
+            # 超过阈值：进行分卷切片
+            split_cmd = ["zip", "-s", split_size, temp_zip, "--out", final_zip]
+            split_result = subprocess.run(split_cmd, capture_output=True, text=True)
+            if os.path.exists(temp_zip):
+                os.remove(temp_zip)
+
+            if split_result.returncode == 0:
+                # 匹配所有分卷 .z01, .z02 ... 并按序号自然排序
+                z_parts = glob.glob(f"{output_zip_abs}.z[0-9]*")
+                z_parts.sort(key=lambda x: int(os.path.splitext(x)[1][2:]) if os.path.splitext(x)[1][2:].isdigit() else 0)
+                created_files = z_parts + ([final_zip] if os.path.exists(final_zip) else [])
+
+                size_mb = total_size / (1024 * 1024)
+                print(
+                    f"✅ 完成: {zip_total} 个压缩包 → {len(extracted_files)} 个Excel (总大小: {size_mb:.1f}MB > {split_size})"
+                )
+                print(f"📦 已生成分卷压缩包 (共 {len(created_files)} 个文件):")
+                for fpath in created_files:
+                    fsize = os.path.getsize(fpath) / (1024 * 1024)
+                    print(f"   - {os.path.basename(fpath)} ({fsize:.1f}MB)")
+                print(
+                    "⚠️  提示: macOS/Windows 系统自带解压工具不支持分卷，请使用 7-Zip / WinRAR / Keka 解压主文件 (.zip)"
+                )
+            else:
+                print(f"❌ 分卷压缩失败 (返回码: {split_result.returncode})")
+                print(f"   stderr: {split_result.stderr}")
     except Exception as e:
         print(f"❌ 调用压缩命令出错: {e}")
     finally:
@@ -285,7 +399,7 @@ def mergeOriginalData(config):
             continue
         sheet_done += 1
         print(f"\r  [{sheet_done}/{sheet_count}] 读取sheet...", end="", flush=True)
-        res = open_excel.excelReadSheet(sheet=sheet_name, column=5)
+        res = open_excel.excelReadSheet(sheet=sheet_name, column=6)
         data.extend(res)
 
     print()
@@ -297,7 +411,7 @@ def mergeOriginalData(config):
 
     excel_obj = excel(output)
     excel_obj.excel_write(
-        title=['登陆IP', '登陆用户名', 'AB角色', '备注', '时间'],
+        title=['登录IP', '登录用户名', 'AB角色', '属性', '备注', '修改日期'],
         data=data,
         sheetname='巡检原始数据'
     )
@@ -512,10 +626,21 @@ def merge_inspection_assets(config, extract_result=None, do_cleanup=True):
                         err_count += 1
                         print(f"  ⚠️ 读取 {f} 的 {task['sheet_name']} 失败: {e}")
 
+    # 对"网元版本信息"进行多ESN拆分
+    for task in merge_tasks:
+        if task["name"] == "网元版本信息" and task["data"]:
+            task["data"], task["split_info"] = split_multi_esn_rows(task["data"])
+
     # 统计结果
     print(f"\n📊 统计:")
     for task in merge_tasks:
-        print(f"  - {task['name']}: {len(task['data'])} 条记录")
+        total_rows = len(task['data'])
+        if task.get("split_info") and task["split_info"]["split_rows"] > 0:
+            si = task["split_info"]
+            orig_rows = total_rows - si["added_rows"]
+            print(f"  - {task['name']}: {total_rows} 条记录 (原始 {orig_rows} 条，在 {si['split_rows']} 处多ESN拆分后新增 {si['added_rows']} 行)")
+        else:
+            print(f"  - {task['name']}: {total_rows} 条记录")
 
     if not any(task["data"] for task in merge_tasks):
         print(f"❌ 未找到任何数据")
