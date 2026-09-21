@@ -82,6 +82,13 @@ _RE_FAILED_CMD = re.compile(r'The number of failed commands is (\d+)', re.IGNORE
 _RE_ESN = re.compile(r'ESN.*?:\s*(\w+)', re.IGNORECASE)
 _RE_ALARM_SECTION = re.compile(r'display alarm active[\s\S]*?<', re.IGNORECASE)
 _RE_ALARM_ENTRY = re.compile(r'\d+\s+0x[0-9a-fA-F]+\s+\S+\s+\d{4}-\d{2}-\d{2}')
+_RE_BGP_CONFIG = re.compile(
+    r'(?:^|\n)[ \t]*(bgp\s+\d+[\s\S]*?)(?=\n#[ \t]*\n\S|\n<|\Z)',
+    re.IGNORECASE
+)
+_RE_BGP_GROUP_DEF = re.compile(r'^\s*group\s+(\S+)\s+(?:external|internal)', re.MULTILINE | re.IGNORECASE)
+_RE_BGP_PEER_GROUP = re.compile(r'^\s*peer\s+(\S+)\s+group\s+(\S+)', re.MULTILINE | re.IGNORECASE)
+_RE_BGP_PEER_AS = re.compile(r'^\s*peer\s+(\S+)\s+as-number\s+(\d+)', re.MULTILINE | re.IGNORECASE)
 
 
 # ============================================================
@@ -850,6 +857,81 @@ def _check_transceiver_speed(fileTxt, checkItems):
 
 
 # ============================================================
+# BGP 组 AS 检查
+# ============================================================
+
+def _is_ip_address(s):
+    """判断字符串是否为 IPv4 或 IPv6 地址"""
+    return bool(re.match(r'^\d+\.\d+\.\d+\.\d+$', s) or ':' in s)
+
+
+def _check_bgp_group_as(fileTxt, checkItems):
+    """
+    检查 BGP 对等体组的 AS 号与组内各 peer 配置的 AS 号是否一致。
+
+    逻辑：
+    1. 匹配 BGP 配置段（bgp <as> ...）
+    2. 提取所有对等体组名称（通过 group 或 peer group 声明）及其配置的 AS 号（peer <组名> as-number <as>）
+    3. 提取各对等体组包含的 peer 成员及各 peer 独立配置的 AS 号（peer <peer_ip> as-number <as>）
+    4. 逐一比对组内 peer 的 AS 是否与所属组的 AS 一致
+
+    返回：
+        '通过'      — 所有对等体组及组内 peer AS 一致
+        '未匹配到'  — 未匹配到 BGP 配置或无对等体组配置
+        str         — 异常详情，以 '未通过: ...' 开头（触发 Excel 标红）
+    """
+    logger.debug('%s 开始bgp组AS检查', checkItems['name'])
+    bgp_match = _RE_BGP_CONFIG.search(fileTxt)
+    if not bgp_match:
+        return '未匹配到'
+
+    bgp_txt = bgp_match.group(1)
+
+    # 1. 查找所有组名
+    declared_groups = set(_RE_BGP_GROUP_DEF.findall(bgp_txt))
+    peer_group_mappings = _RE_BGP_PEER_GROUP.findall(bgp_txt)
+    ref_groups = set(grp for _, grp in peer_group_mappings)
+    as_mappings = _RE_BGP_PEER_AS.findall(bgp_txt)
+    named_groups = set(name for name, _ in as_mappings if not _is_ip_address(name))
+
+    all_groups = declared_groups | ref_groups | named_groups
+    if not all_groups:
+        return '未匹配到'
+
+    # 2. 建立名称/IP -> AS 映射
+    target_as = dict(as_mappings)
+
+    # 3. 建立 组名 -> peer成员集合 映射
+    group_members = {}
+    for peer_ip, grp in peer_group_mappings:
+        group_members.setdefault(grp, set()).add(peer_ip)
+
+    total_checked = 0
+    issues = []
+    for grp in sorted(all_groups):
+        grp_as = target_as.get(grp)
+        members = sorted(group_members.get(grp, set()))
+        if not members:
+            continue
+        if not grp_as:
+            issues.append(f'组{grp}未配置AS')
+            continue
+        for peer_ip in members:
+            total_checked += 1
+            peer_as = target_as.get(peer_ip)
+            if not peer_as:
+                issues.append(f'{peer_ip}未配置AS(组{grp} AS:{grp_as})')
+            elif peer_as != grp_as:
+                issues.append(f'{peer_ip} AS({peer_as})与组{grp} AS({grp_as})不一致')
+
+    if issues:
+        return '未通过: ' + '; '.join(issues)
+    if total_checked == 0:
+        return '未匹配到'
+    return '通过'
+
+
+# ============================================================
 # 检查项分发表：检查项名称 -> 对应函数
 # ============================================================
 _CHECKERS = {
@@ -867,6 +949,7 @@ _CHECKERS = {
     '告警检查':            _check_alarm_active,
     '线路检查':            _check_cable,
     '端口模块速率检查':           _check_transceiver_speed,
+    'bgp组AS检查':          _check_bgp_group_as,
 }
 
 
