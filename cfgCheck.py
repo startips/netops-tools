@@ -422,15 +422,29 @@ def _check_hardware(fileTxt, checkItems):
 
 
 def _check_open_ports(fileTxt, checkItems):
-    """检查是否存在 down 状态但未 shutdown 的端口"""
+    """检查是否存在未关闭的空闲物理端口（无业务配置且未shutdown）"""
     logger.debug('%s 开始未关闭端口检查', checkItems['name'])
-    matchDownPortInfo = re.findall(
-        r'(?:Multi|100|25|10)GE\d+\/\d+\/\d+\s+(down|down\(ed\)|down\(b\))'
-        r'(?:\s+\S+){3}\s+\d+\s+\d+',
-        fileTxt, re.IGNORECASE
+    port_blocks = re.findall(
+        r'^[ \t]*interface ((?:MultiGE|100GE|40GE|25GE|10GE|XGigabitEthernet|GigabitEthernet|XGE|GE)\d+/\d+/\d+)[ \t]*\r?\n((?:(?!^[ \t]*#)[\s\S])*)',
+        fileTxt,
+        re.IGNORECASE | re.MULTILINE
     )
-    if matchDownPortInfo:
-        return str(len(matchDownPortInfo))
+    if not port_blocks:
+        return '未匹配到'
+
+    unconfigured_not_shutdown = []
+    for name, body in port_blocks:
+        lines = [l.strip() for l in body.split('\n') if l.strip()]
+        meaningful_cmds = [
+            c for c in lines
+            if c not in ('shutdown', 'undo shutdown') and not c.startswith('device transceiver')
+        ]
+        if not meaningful_cmds:
+            if 'shutdown' not in lines:
+                unconfigured_not_shutdown.append(name)
+
+    if unconfigured_not_shutdown:
+        return str(len(unconfigured_not_shutdown))
     return '通过'
 
 

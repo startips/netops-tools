@@ -24,15 +24,21 @@ env/
 .LSOverride
 
 # Data files (sensitive / generated)
-data/*.xlsx
-data/*.log
-data/*.md
-log/*.log
+data/
+log/
+
+# 设备配置文件（采集/预期）
+read/config/
+read/config_intended/
 
 
 # Temp files
 temp.py
 temp1.py
+
+# Ignore local tool & check options
+.opencode/
+checkOptions/
 
 # Keep directory structure
 !data/.gitkeep

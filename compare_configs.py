@@ -140,18 +140,44 @@ def match_devices(intended_dir, collected_dir):
 # ============================================================
 
 def extract_collected_config(text):
-    """从采集日志中提取 display current-configuration 输出段"""
-    m = re.search(r'display current-configuration([\s\S]*?return)', text, re.IGNORECASE)
-    if not m:
-        logger.debug('未从采集日志中提取到 display current-configuration 配置段')
-    return m.group(1).strip() if m else None
+    """
+    从采集日志中提取配置段（支持 display current-configuration 及 dis cu 等简写形式）。
+
+    兼容形式：
+    - 命令简写：dis cu, disp cu, display cu, dis curr, display current-configuration 等
+    - 管道符与参数：| no, | no-more, | regular, configuration 等
+    - 各种命令行提示符：<Switch>dis cu, [Switch] dis cu, Switch# dis cu 或无前缀行首
+    - 严格行首锚定：避免误匹配配置正文中出现的命令（如 command-privilege ... display current-configuration）
+    - 结束标识：优先匹配独立的 return 行，若无则匹配至下一个提示符或文本结尾
+    - 纯配置兜底：若文本已是纯配置文件（无 CLI 交互命令），直接支持解析
+    """
+    pattern = re.compile(
+        r'(?:\A|\n)[ \t]*(?:<[^>\n]+>|\[[^\]\n]+\]|[\w.-]+[>#])?[ \t]*'
+        r'(?:display|disp|dis)\s+(?:current-configuration|curr(?:ent)?|cu|cur)\b[^\n]*\r?\n'
+        r'([\s\S]*?'
+        r'(?:\n[ \t]*return\b[^\n]*|\Z))',
+        re.IGNORECASE
+    )
+    m = pattern.search(text)
+    if m:
+        return m.group(1).strip()
+
+    # 兜底：如果文本本身就是纯配置文件（无 dis cu 命令行，直接以 #, !, 或 sysname 开始）
+    if re.search(r'^\s*(?:#|!|sysname\b)', text, re.MULTILINE | re.IGNORECASE):
+        logger.debug('未匹配到 dis cu 命令提示符，但检测到纯配置特征，使用全文')
+        return text.strip()
+
+    logger.debug('未从采集日志中提取到 current-configuration 配置段')
+    return None
 
 
 def extract_model_version(log_text):
-    """从 display version 输出中提取型号和版本号"""
+    """从 display version 输出中提取型号和版本号（兼容 dis ver 等简写）"""
     model = version = None
     ver_section = re.search(
-        r'display version[^\n]*\n(.*?)(?=\n\s*<|\Z)',
+        r'(?:\A|\n)[ \t]*(?:<[^>\n]+>|\[[^\]\n]+\]|[\w.-]+[>#])?[ \t]*'
+        r'(?:display|disp|dis)\s+ver(?:sion)?[^\n]*\r?\n'
+        r'(.*?)(?=\n[ \t]*<|\Z)',
         log_text, re.IGNORECASE | re.DOTALL
     )
     if ver_section:
@@ -655,6 +681,7 @@ def _mask_sensitive(text):
     text = re.sub(r'(password\s+irreversible-cipher\s+)\S+', r'\1<密文>', text)
     text = re.sub(r'(snmp-agent\s+community\s+read\s+cipher\s+)\S+', r'\1<密文>', text)
     text = re.sub(r'(set\s+authentication\s+password\s+cipher\s+)\S+', r'\1<密文>', text)
+    text = re.sub(r'(authentication-mode hmac-sha256 password\s+)\S+', r'\1<密文>', text)
     return text
 
 
