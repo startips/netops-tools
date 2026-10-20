@@ -831,18 +831,86 @@ def _check_transceiver_speed(fileTxt, checkItems):
     """
     检查物理端口配置速率与实际插入模块速率是否匹配。
 
-    对每个含 device transceiver 的物理端口：
-    - 排除"无配置"端口（只有 shutdown 或 shutdown+device transceiver）
-    - 从接口名提取配置速率（\\d+GE → 数字）
-    - 从 device transceiver 提取模块实际速率（\\d+GBASE → 数字）
-    - 严格相等才算匹配
-
-    返回：
-        '通过'       — 全部匹配
-        '未匹配到'    — 无含模块的物理端口
-        str          — '不匹配N个: 接口名(配置G口插模块G) ...'
+    逻辑：
+    1. 找出使用的物理端口（有业务配置的物理端口）
+    2. 若包含 display interface transceiver verbose 回显，提取各端口实际光模块类型及速率
+    3. 比对在用端口速率与实际光模块速率是否一致
+    4. 兼容降级：若无 verbose 回显，退化为从配置块中的 device transceiver 比对
     """
     logger.debug('%s 开始端口模块速率检查', checkItems['name'])
+
+    # 1. 找出使用的物理端口
+    port_blocks = re.findall(
+        r'^[ \t]*interface ((?:MultiGE|100GE|40GE|25GE|10GE|XGigabitEthernet|GigabitEthernet|XGE|GE)\d+/\d+/\d+)[ \t]*\r?\n((?:(?!^[ \t]*#)[\s\S])*)',
+        fileTxt,
+        re.IGNORECASE | re.MULTILINE
+    )
+    used_ports = {}
+    for name, body in port_blocks:
+        lines = [l.strip() for l in body.split('\n') if l.strip()]
+        meaningful = [
+            c for c in lines
+            if c not in ('shutdown', 'undo shutdown') and not c.startswith('device transceiver')
+        ]
+        if meaningful:
+            speed = None
+            m = re.match(r'(\d+)GE', name, re.IGNORECASE)
+            if m:
+                speed = m.group(1)
+            elif re.match(r'(?:GE|GigabitEthernet)', name, re.IGNORECASE):
+                speed = '1'
+            elif re.match(r'(?:XGE|XGigabitEthernet)', name, re.IGNORECASE):
+                speed = '10'
+            used_ports[name] = speed
+
+    # 2. 优先通过 display interface transceiver verbose 回显比对
+    sec_match = re.search(
+        r'display\s+interface\s+transceiver\s+verbose[^\n]*\r?\n([\s\S]*?)(?=\n[ \t]*<|\Z)',
+        fileTxt,
+        re.IGNORECASE
+    )
+    if sec_match:
+        trans_text = sec_match.group(1)
+        port_trans = {}
+        matches = re.finditer(
+            r'^[ \t]*(\S+)\s+transceiver information:\s*\n([\s\S]*?)(?=^[ \t]*\S+\s+transceiver information:|\Z)',
+            trans_text,
+            re.MULTILINE
+        )
+        for m in matches:
+            port_name = m.group(1)
+            block = m.group(2)
+            type_m = re.search(r'Transceiver Type\s*:\s*(\S+)', block, re.IGNORECASE)
+            if type_m:
+                mod_type = type_m.group(1)
+                mod_speed = None
+                gbase_m = re.search(r'(\d+)GBASE', mod_type, re.IGNORECASE)
+                if gbase_m:
+                    mod_speed = gbase_m.group(1)
+                elif '1000BASE' in mod_type.upper() or 'GE' in mod_type.upper():
+                    mod_speed = '1'
+                port_trans[port_name] = {'type': mod_type, 'speed': mod_speed}
+
+        missing_modules = []
+        mismatched = []
+        for p, cfg_speed in used_ports.items():
+            if p not in port_trans:
+                missing_modules.append(p)
+            else:
+                info = port_trans[p]
+                if cfg_speed and info['speed'] and cfg_speed != info['speed']:
+                    mismatched.append(f'{p}({cfg_speed}G口插{info["type"]})')
+
+        if not missing_modules and not mismatched:
+            return '通过'
+        issues = []
+        if missing_modules:
+            issues.append(f'未插模块{len(missing_modules)}个: ' + ' '.join(missing_modules))
+        if mismatched:
+            issues.append(f'速率不匹配{len(mismatched)}个: ' + ' '.join(mismatched))
+        return '; '.join(issues)
+
+    # 3. 兼容降级：若日志中无 display interface transceiver verbose 回显，使用端口配置块中的 device transceiver
     ports = _parse_phy_port_blocks(fileTxt)
     if not ports:
         return '未匹配到'
