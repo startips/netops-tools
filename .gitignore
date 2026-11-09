@@ -30,11 +30,20 @@ log/
 # 设备配置文件（采集/预期）
 read/config/
 read/config_intended/
+read/huawei_cookie.txt
+
+# 功能6 的真实输入数据 / 自动缓存（不提交）
+read/设备版本信息.xlsx
+read/eos_cache.json
 
 
 # Temp files
 temp.py
 temp1.py
+
+# 文档与视频（不提交）
+docs/
+video/
 
 # Ignore local tool & check options
 .opencode/

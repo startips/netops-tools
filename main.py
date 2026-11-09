@@ -125,7 +125,8 @@ def start_action():  # windows功能入口
         '2.采集配置文件状态检查\n'
         '3.下发配置\n'
         '4.配置下发验证比对（预期 vs 采集）\n'
-        '5.离线配置检查（根据keyWords.txt里的关键字）')
+        '5.离线配置检查（根据keyWords.txt里的关键字）\n'
+        '6.设备版本生命周期查询（EOS自动回填）')
     while True:
         if 'Linux' in platform.system():
             import sys
@@ -182,6 +183,15 @@ def start_action():  # windows功能入口
             from checkConfigOffline import deviceCheck
             data = funcAction(deviceCheck, savename, data=oringinDataFormat(), worker=10)
             writeToExcel(savename, title, data)
+            break
+        if functionSelect == '6':
+            print('1).确认待查表格已填入read/设备版本信息.xlsx\n'
+                  '2).需要联网补全时，确认Cookie已填入read/huawei_cookie.txt\n'
+                  '3).执行完成将自动输出至data/目录')
+            from fetch_device_eos import main as eos_main
+            result = eos_main()
+            if result:
+                print('功能6未完整完成，请根据上方提示处理后重试。')
             break
         else:
             print('输入错误请重新输入')
