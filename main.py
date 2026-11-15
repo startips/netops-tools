@@ -61,7 +61,10 @@ def funcAction(func, logName, data=None, user='', passwd='', fileName='', worker
 
 def oringinDataFormat():  # 原始数据分类
     file_dir = os.path.join(_base_dir, 'read', 'config')
-    all_items = [item for item in os.listdir(file_dir) if not item.startswith('.')]  # 去掉.开头的文件
+    all_items = [
+        item for item in os.listdir(file_dir)
+        if not item.startswith('.') and os.path.isfile(os.path.join(file_dir, item))
+    ]  # 去掉.开头的文件及子目录
     read_info = []  # 结果
     for item in all_items:
         name = item.replace('.txt', '').replace('.log', '')
@@ -149,14 +152,14 @@ def start_action():  # windows功能入口
                               user=username, passwd=password, worker=worker)
             writeToExcel(savename, title, data)
             break
-        if functionSelect == '2':  # 配置检查+状态采集
+        elif functionSelect == '2':  # 配置检查+状态采集
             from cfgCheck import deviceCheck, get_check_title
             title = get_check_title()
             savename = '状态检查结果'
             data = funcAction(deviceCheck, savename, data=oringinDataFormat(), worker=10)
             writeToExcel(savename, title, data, highlight=True)
             break
-        if functionSelect == '3':
+        elif functionSelect == '3':
             fileName = 'devices_ip.xlsx'
             title = ['IP', 'Description', 'PingStatus(ms)', 'accessMode', 'result']  # 保存的sheet标题
             savename = 'sendCmd'
@@ -168,11 +171,11 @@ def start_action():  # windows功能入口
                               user=username, passwd=password, worker=worker)
             writeToExcel(savename, title, data)
             break
-        if functionSelect == '4':
+        elif functionSelect == '4':
             from compare_configs import main as compare_main
             compare_main()
             break
-        if functionSelect == '5':
+        elif functionSelect == '5':
             title = ['设备名']  # 保存的sheet标题
             groups = readTxtGrouped(os.path.join(_base_dir, 'read', 'keyWords.txt'))
             for g in groups:
@@ -184,7 +187,7 @@ def start_action():  # windows功能入口
             data = funcAction(deviceCheck, savename, data=oringinDataFormat(), worker=10)
             writeToExcel(savename, title, data)
             break
-        if functionSelect == '6':
+        elif functionSelect == '6':
             print('1).确认待查表格已填入read/设备版本信息.xlsx\n'
                   '2).需要联网补全时，确认Cookie已填入read/huawei_cookie.txt\n'
                   '3).执行完成将自动输出至data/目录')

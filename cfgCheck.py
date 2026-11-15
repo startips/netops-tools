@@ -64,11 +64,10 @@ logger.debug('设备类型配置加载完成: %s', list(DEVICE_TYPE_CONFIGS.keys
 # ============================================================
 _RE_SYSNAME = re.compile(r'#\s*\n\s*sysname (\S+)\s*\n\s*#', re.IGNORECASE)
 _RE_METH_IP = re.compile(
-    r'interface MEth\S+\s*\n\s*'
-    r'description \S+\s*\n\s*'
-    r'ip binding vpn-instance \S+\s*\n\s*'
-    r'ip address (\d+\.\d+\.\d+\.\d+) \d+\.\d+\.\d+\.\d+',
-    re.IGNORECASE
+    r'interface MEth\S+[^\r\n]*\r?\n'
+    r'(?:(?!^[ \t]*#)[\s\S])*?'
+    r'^[ \t]*ip address (\d+\.\d+\.\d+\.\d+) \d+\.\d+\.\d+\.\d+',
+    re.IGNORECASE | re.MULTILINE
 )
 _RE_HUAWEI_MODEL = re.compile(r'HUAWEI (\S+) (?:Routing Switch)?\s*uptime is', re.IGNORECASE)
 _RE_VERSION = re.compile(r'Version \S+ \(\S+ (\S+)\)')
@@ -83,12 +82,26 @@ _RE_ESN = re.compile(r'ESN.*?:\s*(\w+)', re.IGNORECASE)
 _RE_ALARM_SECTION = re.compile(r'display alarm active[\s\S]*?<', re.IGNORECASE)
 _RE_ALARM_ENTRY = re.compile(r'\d+\s+0x[0-9a-fA-F]+\s+\S+\s+\d{4}-\d{2}-\d{2}')
 _RE_BGP_CONFIG = re.compile(
-    r'(?:^|\n)[ \t]*(bgp\s+\d+[\s\S]*?)(?=\n#[ \t]*\n\S|\n<|\Z)',
+    r'(?:^|\n)[ \t]*(bgp\s+\d+[\s\S]*?)(?=\r?\n#[ \t]*\r?\n\S|\r?\n<|\Z)',
     re.IGNORECASE
 )
 _RE_BGP_GROUP_DEF = re.compile(r'^\s*group\s+(\S+)\s+(?:external|internal)', re.MULTILINE | re.IGNORECASE)
 _RE_BGP_PEER_GROUP = re.compile(r'^\s*peer\s+(\S+)\s+group\s+(\S+)', re.MULTILINE | re.IGNORECASE)
 _RE_BGP_PEER_AS = re.compile(r'^\s*peer\s+(\S+)\s+as-number\s+(\d+)', re.MULTILINE | re.IGNORECASE)
+_RE_CUR_CONFIG_PROMPT = re.compile(
+    r'^[ \t]*<[^>]+>\s*display\s+current-configuration\b[^\r\n]*\r?\n([\s\S]*?)(?=\r?\n[ \t]*<|\Z)',
+    re.IGNORECASE | re.MULTILINE
+)
+_RE_CUR_CONFIG = re.compile(
+    r'^[ \t]*display\s+current-configuration\b[^\r\n]*\r?\n([\s\S]*?)(?=\r?\n[ \t]*<|\Z)',
+    re.IGNORECASE | re.MULTILINE
+)
+_RE_IF_BLOCK = re.compile(
+    r'^[ \t]*interface ([^\r\n]+?)[ \t]*\r?\n((?:(?!^[ \t]*(?:#|return\b))[\s\S])*?)(?=^[ \t]*(?:#|return\b)|\Z)',
+    re.IGNORECASE | re.MULTILINE
+)
+_RE_DHCP_SELECT_RELAY = re.compile(r'^[ \t]*dhcp\s+select\s+relay\b', re.IGNORECASE | re.MULTILINE)
+_RE_DHCP_ENABLE = re.compile(r'^[ \t]*dhcp\s+enable\b', re.IGNORECASE | re.MULTILINE)
 
 
 # ============================================================
@@ -230,7 +243,7 @@ def deviceCheck(arg):  # 检查
     返回：
         list，[设备名, 设备类型, sysname, 管理IP, 型号, 各项检查结果...]
     """
-    data_local = arg
+    data_local = dict(arg)
     logger.info('开始检查设备: %s', data_local['name'])
     # 确定设备类型和检查项
     dev_info = _returntype(data_local['name'])
@@ -458,7 +471,7 @@ def _check_bgp_neighbor(fileTxt, checkItems):
     if not bgpNum:
         return '未匹配到'
     normalBgpNum = len(re.findall(
-        r'\d+\.\d+\.\d+\.\d+(:?\s+\d+){5}\s+\S+\s+Established',
+        r'\d+\.\d+\.\d+\.\d+(?:\s+\d+){5}\s+\S+\s+Established',
         bgpInfo.group(), re.IGNORECASE
     ))
     return f'邻居数量:{bgpNum[0]},正常邻居数量:{normalBgpNum}'
@@ -471,7 +484,7 @@ def _check_feature_software(fileTxt, checkItems):
     if not matchFeaInfo:
         return '未匹配到'
     featureInfo = re.findall(
-        r'(:?PKG_PNF|AIFABRIC|TELEMETRY|WEAKEA)\s+\S+\.cc\s+active\s+'
+        r'(?:PKG_PNF|AIFABRIC|TELEMETRY|WEAKEA)\s+\S+\.cc\s+active\s+'
         r'\S+\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}',
         matchFeaInfo.group(), re.IGNORECASE
     )
@@ -499,8 +512,8 @@ def _check_mlag_status(fileTxt, checkItems):
     logger.debug('%s 开始M-LAG状态检查', checkItems['name'])
     return '通过' if genCheckOption(
         r'Heart beat state\s+\:\s+OK\s*\n\s*'
-        r'Node [12][\s\S]*?State\s+\:\s+(:?Backup|Master)[\s\S]*?'
-        r'Node [12][\s\S]*?State\s+\:\s+(:?Backup|Master)',
+        r'Node [12][\s\S]*?State\s+\:\s+(?:Backup|Master)[\s\S]*?'
+        r'Node [12][\s\S]*?State\s+\:\s+(?:Backup|Master)',
         fileTxt
     ) else '未通过'
 
@@ -581,13 +594,13 @@ _exclude_phy = set(CABLE_CHECK_CONFIG.get('exclude_phy', []))
 
 # 匹配 interface \d+GE槽位/子卡/端口 ... # 的物理端口段，排除子接口
 _RE_PHY_PORT_BLOCK = re.compile(
-    r'interface (\d+GE\d+/\d+/\d+)\n([\s\S]*?)\n#', re.IGNORECASE
+    r'interface (\d+GE\d+/\d+/\d+)[ \t]*\r?\n([\s\S]*?)\r?\n#', re.IGNORECASE
 )
 _RE_TRANSCEIVER = re.compile(r'device transceiver (\d+)GBASE', re.IGNORECASE)
 
 
 def _parse_phy_port_blocks(fileTxt):
-    """
+    r"""
     提取配置文件中含 device transceiver 的物理端口配置块。
 
     返回: [(接口名, body文本), ...]
@@ -1013,6 +1026,49 @@ def _check_bgp_group_as(fileTxt, checkItems):
     return '通过'
 
 
+def _extract_current_config(fileTxt):
+    """优先截取 display current-configuration 配置段，未匹配到则退回全文"""
+    m = _RE_CUR_CONFIG_PROMPT.search(fileTxt) or _RE_CUR_CONFIG.search(fileTxt)
+    return m.group(1) if m else fileTxt
+
+
+def _check_dhcp_relay(fileTxt, checkItems):
+    """
+    检查接口配置了 dhcp select relay 时，全局是否开启 dhcp enable。
+
+    逻辑：
+    1. 优先截取 display current-configuration 配置段（兼容纯配置片段）
+    2. 提取所有接口配置块（interface <名称> ... #/return/EOF）
+    3. 查找接口下配置了 dhcp select relay 的接口
+    4. 若无此类接口，返回 '不涉及'；若有，则校验全局配置中是否存在 dhcp enable
+
+    返回：
+        '通过'      — 已配置 dhcp select relay 且全局已开启 dhcp enable
+        '不涉及'    — 无接口配置 dhcp select relay
+        '未匹配到'  — 未匹配到接口配置信息
+        str         — 异常详情，以 '未通过: ...' 开头（触发 Excel 标红）
+    """
+    logger.debug('%s 开始dhcp relay检查', checkItems['name'])
+    cfg_txt = _extract_current_config(fileTxt)
+    if_blocks = _RE_IF_BLOCK.findall(cfg_txt)
+    if not if_blocks:
+        return '未匹配到'
+
+    relay_interfaces = [
+        name.strip() for name, body in if_blocks
+        if _RE_DHCP_SELECT_RELAY.search(body)
+    ]
+    if not relay_interfaces:
+        return '不涉及'
+
+    global_cfg = _RE_IF_BLOCK.sub('', cfg_txt)
+    if _RE_DHCP_ENABLE.search(global_cfg):
+        return '通过'
+
+    preview = ', '.join(relay_interfaces[:5]) + ('等' if len(relay_interfaces) > 5 else '')
+    return f'未通过: 配置了dhcp select relay({preview})，但全局未开启dhcp enable'
+
+
 # ============================================================
 # 检查项分发表：检查项名称 -> 对应函数
 # ============================================================
@@ -1032,6 +1088,7 @@ _CHECKERS = {
     '线路检查':            _check_cable,
     '端口模块速率检查':           _check_transceiver_speed,
     'bgp组AS检查':          _check_bgp_group_as,
+    'dhcp relay检查':       _check_dhcp_relay,
 }
 
 

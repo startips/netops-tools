@@ -34,7 +34,7 @@ def ping_check(ip, count=4, size=64):  # 返回延迟ms以及丢包率 linux需�
     loss_info = re.findall('timed out', ping_result)
     loss_num = len(loss_info)
     if loss_num < count_local:
-        delay_info = re.search('Times min\/avg\/max is\s(.+)\sms', ping_result).group(1)
+        delay_info = re.search(r'Times min/avg/max is\s(.+)\sms', ping_result).group(1)
         delay_avg = delay_info.split('/')[1]
     loss_per = '{:.0%}'.format(loss_num / count_local)
     return delay_avg, loss_per

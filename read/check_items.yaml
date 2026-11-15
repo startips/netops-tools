@@ -23,11 +23,12 @@ check_items:
   - 线路检查
   - 端口模块速率检查
   - bgp组AS检查
+  - dhcp relay检查
 
 # 设备类型配置（列出需要检查的项，其余自动为 0）
 device_types:
   Spine: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, hash配置, 告警检查, 线路检查, 端口模块速率检查, bgp组AS检查]
-  Leaf: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, mlag状态, 告警检查, 线路检查, 端口模块速率检查, bgp组AS检查]
+  Leaf: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, mlag状态, 告警检查, 线路检查, 端口模块速率检查, bgp组AS检查, dhcp relay检查]
   Slf: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, mlag状态, 告警检查, 线路检查, 端口模块速率检查, bgp组AS检查]
   La: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, mlag状态, 告警检查, 线路检查, 端口模块速率检查, bgp组AS检查]
   Pl: [版本, 补丁, 多余文件检查, 硬件状态检查, 未关闭端口, bgp邻居状态, feature-software状态, 失败命令配置检查, 设备Esn, hash配置, 告警检查, 线路检查, 端口模块速率检查, bgp组AS检查]
